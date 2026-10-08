@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GD&amp;T Trainer · Position of a hole</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main id="app">
+    <div id="viewport">
+      <div class="overlay">
+        <div id="status-badge" class="status-badge"></div>
+        <div id="mag-badge" class="mag-badge"></div>
+      </div>
+    </div>
+    <aside id="panel"></aside>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

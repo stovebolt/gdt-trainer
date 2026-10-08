@@ -1,0 +1,23 @@
+{
+  "name": "gdt-viewer",
+  "version": "1.0.0",
+  "description": "GD&T Interactive Trainer - 3D viewer for hole position tolerance",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test tests/",
+    "vendor": "node scripts/vendor.mjs",
+    "postinstall": "node scripts/vendor.mjs",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "0.169.0"
+  },
+  "devDependencies": {
+    "playwright-core": "1.48.2"
+  },
+  "type": "module",
+  "private": true
+}

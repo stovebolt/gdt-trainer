@@ -7,7 +7,8 @@
     "test": "node --test tests/",
     "vendor": "node scripts/vendor.mjs",
     "postinstall": "node scripts/vendor.mjs",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "mobile": "node scripts/mobile-check.mjs"
   },
   "keywords": [],
   "author": "",

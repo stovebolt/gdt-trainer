@@ -72,6 +72,6 @@ window.gdt = {
   applyPreset,
   result: () => last,
   setMagnification: (m) => { state.magnification = m; refresh(); },
-  _debug: { handles: viewer.handles, camera: viewer.camera, canvas: viewer.domElement },
+  _debug: { handles: viewer.handles, camera: viewer.camera, canvas: viewer.domElement, controls: viewer.controls },
   ready: true,
 };

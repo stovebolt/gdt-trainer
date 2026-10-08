@@ -37,8 +37,9 @@ npm run screenshots      # headless Chrome via playwright-core; server must be r
 `npm run screenshots` loads the page and fails on any console error or warning.
 It checks IN/OUT for several states, drives a real pointer drag in the 3D view
 and in the top-view inset, and writes `screenshots/in.png`, `out.png`,
-`tilt_in.png`, `tilt_out.png`, `tilt_out_closeup.png` and
-`boundary_0.1251.png`. It also checks that r = 0.1251 and r = 0.12503 both read
+`tilt_in.png`, `tilt_out.png`, `tilt_out_closeup.png`,
+`boundary_0.1251.png` and `labels.png`. It also checks the zone/axis/inset
+labels (including the live ×N as the slider moves) and that r = 0.1251 and r = 0.12503 both read
 `0.1251` with FAIL, that r = 0.1250 reads PASS, and that the size note is
 visible next to both verdicts. It uses the system
 Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
@@ -70,10 +71,36 @@ Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
   drawing notation.
 - **Exaggeration slider** (default ×24). This is display only; see ZONE.md §5.
   The amber badge in the 3D view always shows the current factor.
+- **Labels in the 3D view.** The translucent cylinder is labelled *"position
+  zone ⌀0.25 (shown ×N, not a pin)"*. N updates live with the slider, and at
+  ×1 it reads "shown ×1, true size". This is there because testers mistook the
+  zone for a gage pin. The bold line is labelled *"hole's actual axis"*. The
+  inset labels its circle *"⌀0.25 position zone"*.
 - **X-ray plate** makes the plate translucent so you can see the axis inside
   the bore. **Zoom to hole** is a close-up camera preset.
 - Console hook for checking by hand: `gdt.setAxis({top:{dx:0.1,dy:0}, bottom:{dx:-0.1,dy:0}})`,
   `gdt.applyPreset('tilt-out')`, `gdt.result()`.
+
+## Phones and tablets
+
+The layout adapts to the screen with CSS only:
+- **Portrait phones and tablets** (and windows narrower than 700 px) stack the
+  3D view on top (48% of the height) with the scrolling panel below.
+- **Landscape phones** keep the panel beside the view at about 46% of the width.
+- **Small 3D views** get a compact verdict badge (the size note is still shown)
+  and move the ×N badge to the bottom-left.
+- **Touch controls** are sized for fingers (≥ 40 px buttons, taller sliders).
+
+Touch input:
+- one finger drags a handle; on empty canvas it orbits
+- two fingers pinch-zoom and pan, even when one finger starts on a handle (the
+  handle drag is cancelled and the axis restored)
+- handles and inset dots grab within about 28 px / 22 px of a finger
+
+`npm run mobile` (`scripts/mobile-check.mjs`) runs these checks with
+Playwright device emulation (iPhone 13/14, Pixel 7, iPad, portrait and
+landscape) against `URL` (defaults to the public site) and writes screenshots
+to `screenshots/mobile/`.
 
 ## File layout
 
@@ -99,9 +126,10 @@ gdt-viewer/
 ├── scripts/
 │   ├── serve.mjs           dependency-free static server (npm start)
 │   ├── vendor.mjs          copies the needed three.js files to vendor/
-│   └── screenshots.mjs     headless browser verification + screenshots
+│   ├── screenshots.mjs     headless browser verification + screenshots (desktop)
+│   └── mobile-check.mjs    device-emulation layout/touch checks (npm run mobile)
 ├── vendor/three/           three@0.169.0 (build + OrbitControls, Line2, CSS2DRenderer)
-├── screenshots/            in.png, out.png, tilt_in.png, tilt_out.png, tilt_out_closeup.png, boundary_0.1251.png
+├── screenshots/            in.png, out.png, tilt_in.png, tilt_out.png, tilt_out_closeup.png, boundary_0.1251.png, labels.png
 ├── README.md
 └── ZONE.md                 zone generation + in/out check, for the GD&T domain expert
 ```

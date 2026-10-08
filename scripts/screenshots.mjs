@@ -59,6 +59,34 @@ for (const [dx, expectR, file] of [[0.1251, '0.1251', 'boundary_0.1251.png'], [0
   console.log(`${ok ? 'OK  ' : 'FAIL'} dx=${dx}: r "${ui.rowR}" ${ui.mark}, position ${ui.pos}, size notes visible=${ui.notes}, 3D labels "${ui.handle}"${file ? ` -> ${file}` : ''}`);
 }
 
+// Clarifying labels: zone (live ×N, "not a pin"), actual axis, inset zone text; no overlap with handle labels.
+async function labelInfo() {
+  return page.evaluate(() => {
+    const r = (e) => e.getBoundingClientRect();
+    const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const zone = document.querySelector('.zone-label'), axis = document.querySelector('.axis-name-label');
+    const handles = [...document.querySelectorAll('.handle-label')];
+    const overlaps = [];
+    for (const [n, el] of [['zone', zone], ['axis', axis]]) for (const h of handles) if (el && hit(r(el), r(h))) overlaps.push(`${n}~${h.innerText.split(' ')[0]}`);
+    return { zone: zone?.innerText.replace(/\n/g, ' '), axis: axis?.innerText, inset: document.querySelector('#inset .t-zone')?.textContent, overlaps };
+  });
+}
+await page.click('button[data-preset="tilt-in"]');
+await page.waitForTimeout(300);
+let li = await labelInfo();
+let lok = li.zone === 'position zone ⌀0.25 (shown ×24, not a pin)' && li.axis === "hole's actual axis" && li.inset === '⌀0.25 position zone' && li.overlaps.length === 0;
+await page.screenshot({ path: 'screenshots/labels.png' });
+console.log(`${lok ? 'OK  ' : 'FAIL'} labels: zone "${li.zone}" · axis "${li.axis}" · inset "${li.inset}" · overlaps [${li.overlaps}] -> labels.png`);
+failed ||= !lok;
+for (const [m, want] of [[40, 'shown ×40, not a pin'], [1, 'shown ×1, true size, not a pin'], [24, 'shown ×24, not a pin']]) {
+  await page.locator('#mag').fill(String(m)); // drives the real slider input event
+  await page.waitForTimeout(150);
+  li = await labelInfo();
+  lok = li.zone.includes(want);
+  failed ||= !lok;
+  console.log(`${lok ? 'OK  ' : 'FAIL'} exaggeration slider ×${m} -> zone label "${li.zone}"`);
+}
+
 // Close-up of the tilted-out state
 await page.click('button[data-preset="tilt-out"]');
 await page.click('#zoom-hole');

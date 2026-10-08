@@ -152,7 +152,11 @@ hole diameter (⌀10.1), Z, basic dimensions. Scaling Z or the hole would
 distort the geometry. So the drawn tilt angle is exaggerated too (by about M
 for small angles), while the real tilt is printed in the readout. The IN/OUT
 math always uses real, unscaled millimetres. The amber badge in the 3D view
-always shows the current factor. The **top-view inset** in the side panel is
+always shows the current factor. The zone cylinder carries its own label,
+*"position zone ⌀0.25 (shown ×N, not a pin)"*, where N is the live factor
+("shown ×1, true size" at ×1). The bold line is labelled *"hole's actual
+axis"*. Testers had mistaken the translucent zone for a gage pin. The
+**top-view inset** in the side panel is
 an un-exaggerated view in real mm, a pure 2D plot of the ⌀0.25 disc and the
 two crossing points.
 

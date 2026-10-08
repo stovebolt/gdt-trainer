@@ -19,20 +19,50 @@ export function attachDrag({ camera, domElement, controls, handles, getState, on
     ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
   };
+  // Screen-space grab radius around each handle (CSS px). Fingers get a much
+  // larger target than a mouse; a direct ray hit always wins.
+  const grabRadius = (ev) => (ev.pointerType === 'touch' || ev.pointerType === 'pen' ? 28 : 10);
+  const tmp = new THREE.Vector3();
   const pick = (ev) => {
     setRay(ev);
-    return raycaster.intersectObjects(handles.list, false)[0]?.object ?? null;
+    const hitObj = raycaster.intersectObjects(handles.list, false)[0]?.object;
+    if (hitObj) return hitObj;
+    const r = domElement.getBoundingClientRect();
+    let best = null;
+    let bestD = grabRadius(ev);
+    for (const h of handles.list) {
+      tmp.copy(h.position).project(camera);
+      if (tmp.z > 1) continue; // behind the camera
+      const sx = r.left + ((tmp.x + 1) / 2) * r.width;
+      const sy = r.top + ((1 - tmp.y) / 2) * r.height;
+      const d = Math.hypot(ev.clientX - sx, ev.clientY - sy);
+      if (d < bestD) { bestD = d; best = h; }
+    }
+    return best;
   };
 
+  // Active pointers on the canvas (for multi-touch arbitration).
+  const active = new Set();
+
   domElement.addEventListener('pointerdown', (ev) => {
-    if (ev.button !== 0) return;
+    active.add(ev.pointerId);
+    // A second finger while dragging a handle means "pinch/pan the view":
+    // cancel the handle drag (restore the axis) and let OrbitControls take it.
+    if (drag && ev.pointerId !== drag.pointerId) {
+      onChange({ bottom: drag.bottom, top: drag.top });
+      finish();
+      return;
+    }
+    if (ev.button !== 0 || active.size > 1) return; // never grab a handle mid-gesture
     const obj = pick(ev);
     if (!obj) return;
     plane.set(new THREE.Vector3(0, 0, 1), -obj.position.z);
     if (!raycaster.ray.intersectPlane(plane, hit)) return;
     const s = getState();
-    drag = { kind: obj.userData.kind, start: hit.clone(), bottom: { ...s.bottom }, top: { ...s.top } };
-    controls.enabled = false;
+    drag = { pointerId: ev.pointerId, kind: obj.userData.kind, start: hit.clone(), bottom: { ...s.bottom }, top: { ...s.top } };
+    // Keep OrbitControls enabled so it still tracks this pointer (needed for a
+    // later two-finger pinch); only suppress its rotation while dragging.
+    controls.enableRotate = false;
     domElement.setPointerCapture(ev.pointerId);
     domElement.style.cursor = 'grabbing';
     ev.preventDefault();
@@ -40,9 +70,10 @@ export function attachDrag({ camera, domElement, controls, handles, getState, on
 
   domElement.addEventListener('pointermove', (ev) => {
     if (!drag) {
-      domElement.style.cursor = pick(ev) ? 'grab' : '';
+      if (ev.pointerType === 'mouse') domElement.style.cursor = pick(ev) ? 'grab' : '';
       return;
     }
+    if (ev.pointerId !== drag.pointerId) return;
     setRay(ev);
     if (!raycaster.ray.intersectPlane(plane, hit)) return;
     const s = getState();
@@ -54,13 +85,18 @@ export function attachDrag({ camera, domElement, controls, handles, getState, on
     onChange(next);
   });
 
-  const end = (ev) => {
+  function finish() {
     if (!drag) return;
+    if (domElement.hasPointerCapture(drag.pointerId)) domElement.releasePointerCapture(drag.pointerId);
     drag = null;
-    controls.enabled = true;
+    controls.enableRotate = true;
     domElement.style.cursor = '';
-    if (domElement.hasPointerCapture(ev.pointerId)) domElement.releasePointerCapture(ev.pointerId);
+  }
+  const end = (ev) => {
+    active.delete(ev.pointerId);
+    if (drag && ev.pointerId === drag.pointerId) finish();
   };
   domElement.addEventListener('pointerup', end);
   domElement.addEventListener('pointercancel', end);
+  domElement.addEventListener('lostpointercapture', (ev) => { if (drag && ev.pointerId === drag.pointerId) finish(); });
 }

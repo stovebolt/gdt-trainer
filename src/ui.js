@@ -90,7 +90,7 @@ function createInset(svg, { onChange, clampOffset }) {
       <circle class="pt" id="i-bottom" r="0.011" data-end="bottom"/>
       <circle class="pt" id="i-top" r="0.011" data-end="top"/>
     </g>
-    <text x="${-R * 0.72 - 0.065}" y="${R * 0.72 + 0.02}" class="t-zone">⌀${fmt(TOL)} zone</text>
+    <text x="${-R * 0.72 - 0.065}" y="${R * 0.72 + 0.02}" class="t-zone">⌀${TOL} position zone</text>
     <text x="${-HALF + 0.008}" y="${-HALF + 0.022}" class="t-small">top view (from +Z)</text>
     <text x="${-HALF + 0.008}" y="${HALF - 0.008}" class="t-small">grid rings r = 0.0500 / 0.1000 / 0.1500 mm</text>
     <text id="t-bottom" class="t-pt">B</text><text id="t-top" class="t-pt">T</text>`;
@@ -103,7 +103,19 @@ function createInset(svg, { onChange, clampOffset }) {
     return { x: p.x, y: -p.y };
   };
   svg.addEventListener('pointerdown', (ev) => {
-    const end = ev.target.dataset?.end || (ev.target.id === 'i-mid' || ev.target.id === 'i-axis' ? 'mid' : null);
+    let end = ev.target.dataset?.end || null;
+    if (!end) {
+      // Finger-friendly: grab the nearest endpoint dot within ~22 px (touch) / 8 px (mouse)
+      const p = toMM(ev);
+      const s = svg.__state;
+      const mmPerPx = (2 * HALF) / svg.getBoundingClientRect().width;
+      let bestD = (ev.pointerType === 'mouse' ? 8 : 22) * mmPerPx;
+      for (const e of ['top', 'bottom']) {
+        const d = Math.hypot(p.x - s[e].dx, p.y - s[e].dy);
+        if (d < bestD) { bestD = d; end = e; }
+      }
+    }
+    if (!end && (ev.target.id === 'i-mid' || ev.target.id === 'i-axis')) end = 'mid';
     if (!end) return;
     drag = { end, start: toMM(ev), s: structuredClone(svg.__state) };
     svg.setPointerCapture(ev.pointerId);

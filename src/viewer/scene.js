@@ -77,7 +77,7 @@ export function createViewer(container) {
     const vt = toVisualXY(TP, state.top.dx, state.top.dy, M);
     for (const child of [...dynamic.children]) disposeObject(child);
     dynamic.add(buildPlate(vb, vt, state.xray));
-    dynamic.add(buildZone(visualZoneRadius(SPEC.position.tolerance, M), result.inTolerance));
+    dynamic.add(buildZone(visualZoneRadius(SPEC.position.tolerance, M), result.inTolerance, M));
     dynamic.add(buildAxis(vb, vt, result));
     dynamic.add(buildLeader(vt));
     handles.place(vb, vt, result);
@@ -251,7 +251,7 @@ function buildPlate(vb, vt, xray) {
 }
 
 /** Translucent cylinder: zone of visual radius R, coaxial with true position, z = 0..H. */
-function buildZone(R, inTol) {
+function buildZone(R, inTol, M) {
   const color = inTol ? COLORS.in : COLORS.out;
   const g = new THREE.Group();
   g.name = 'zone';
@@ -272,6 +272,16 @@ function buildZone(R, inTol) {
     const y = TP.y + R * Math.sin(a);
     g.add(fatLine([[x, y, 0], [x, y, H]], { color, width: 1.5, onTop: true, opacity: 0.8 }));
   }
+  // Label so the cylinder is not mistaken for a gage pin. Sits to the left
+  // (in front of the zone, toward the default camera) on a leader, clear of the
+  // TOP/BOTTOM/slide handle labels and the basic dimensions.
+  const anchor = [TP.x, TP.y - R, 0];
+  const at = [TP.x + 2, TP.y - Math.max(R, 6) - 16, 0];
+  g.add(fatLine([anchor, at], { color, width: 2, onTop: true }));
+  const factor = M === 1 ? 'shown ×1, true size' : `shown ×${M}`;
+  const zl = label(`position zone ⌀${SPEC.position.tolerance}<br>(${factor}, not a pin)`, `zone-label ${inTol ? 'pass' : 'fail'}`, at);
+  zl.center.set(0.5, 0); // hangs below the leader end
+  g.add(zl);
   return g;
 }
 
@@ -287,6 +297,14 @@ function buildAxis(vb, vt, result) {
   g.add(fatLine([[vb.x - dx * ext, vb.y - dy * ext, -ext], [vb.x, vb.y, 0]], { color, width: 2, onTop: true, opacity: 0.45 }));
   g.add(fatLine([[vt.x, vt.y, H], [vt.x + dx * ext, vt.y + dy * ext, H + ext]], { color, width: 2, onTop: true, opacity: 0.45 }));
   g.add(fatLine([[vb.x, vb.y, 0], [vt.x, vt.y, H]], { color, width: 7, onTop: true }));
+  // "hole's actual axis" label, leader from 30% up the axis to the lower right
+  const s = 0.3;
+  const p = [vb.x + s * (vt.x - vb.x), vb.y + s * (vt.y - vb.y), s * H];
+  const at = [vb.x + HOLE_R + 26, vb.y - 13, 0]; // follows the axis so spacing to the handle labels stays constant
+  g.add(fatLine([p, at], { color, width: 2, onTop: true }));
+  const al = label("hole's actual axis", `axis-name-label ${result.inTolerance ? 'pass' : 'fail'}`, at);
+  al.center.set(0, 0.5); // left edge at the leader end
+  g.add(al);
   // radial offset r at each end (true position -> endpoint)
   for (const [v, z, end] of [[vb, 0, result.bottom], [vt, H, result.top]]) {
     g.add(fatLine([[TP.x, TP.y, z], [v.x, v.y, z]], { color: end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));

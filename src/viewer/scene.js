@@ -16,6 +16,31 @@ const TP = SPEC.truePosition;
 const HOLE_R = SPEC.hole.nominal / 2;
 
 export const HOLE_CAMERA = Object.freeze({ position: [TP.x - 14, TP.y - 30, 32], target: [TP.x, TP.y, 4] });
+
+// Phone-sized screens: same media logic as the small-3D-view rules in styles.css
+// (portrait phones <= 700 px wide, landscape phones <= 500 px tall).
+export const PHONE_QUERY = '(max-width: 700px), (max-height: 500px)';
+export const isPhone = () => window.matchMedia(PHONE_QUERY).matches;
+
+// Phone close-up: same viewing direction as HOLE_CAMERA, pulled back by
+// `distance` and with the target shifted so the hole sits below the verdict
+// badge with room for the callout labels. Camera only.
+export const PHONE_HOLE_FRAMING = { distance: 1.25, shift: [11, 2, 3] };
+export function phoneHoleCamera(f = PHONE_HOLE_FRAMING) {
+  const target = HOLE_CAMERA.target.map((t, i) => t + f.shift[i]);
+  const position = target.map((t, i) => t + f.distance * (HOLE_CAMERA.position[i] - HOLE_CAMERA.target[i]));
+  return { position, target };
+}
+
+// Callout labels (zone, actual axis). Two layouts, blended by camera distance:
+//  - FAR (overview distance and beyond): fixed world positions (the layout
+//    verified at the overview).
+//  - NEAR (close-ups): a fixed number of SCREEN pixels from a 3D anchor next to
+//    the hole, so the leader shrinks with camera distance and the labels stay
+//    next to the hole at any zoom. [right, down] in CSS px.
+// Labels are also nudged back inside the canvas if they would leave it.
+export const CALLOUT_PX = { zone: [96, 0], axis: [100, 18] };
+export const CALLOUT_BLEND = { near: 60, far: 130 }; // camera-to-target distance
 export const DEFAULT_CAMERA = Object.freeze({ position: [-22, -88, 92], target: [47, 30, 0] });
 
 export function createViewer(container) {
@@ -52,7 +77,7 @@ export function createViewer(container) {
     controls.target.set(...view.target);
     controls.update();
   }
-  const zoomToHole = () => resetCamera(HOLE_CAMERA);
+  const zoomToHole = () => resetCamera(isPhone() ? phoneHoleCamera() : HOLE_CAMERA);
 
   function resize() {
     const w = container.clientWidth;
@@ -81,10 +106,79 @@ export function createViewer(container) {
     dynamic.add(buildAxis(vb, vt, result));
     dynamic.add(buildLeader(vt));
     handles.place(vb, vt, result);
+    layoutKey = ''; // force callout layout
+  }
+
+  // Place callout labels + leaders (see CALLOUT_PX / CALLOUT_BLEND).
+  const _a = new THREE.Vector3();
+  const _n = new THREE.Vector3();
+  const _f = new THREE.Vector3();
+  let layoutKey = '';
+  function layoutCallouts() {
+    camera.updateMatrixWorld();
+    const w = renderer.domElement.clientWidth;
+    const h = renderer.domElement.clientHeight;
+    const key = `${camera.matrixWorld.elements.join(',')}|${camera.projectionMatrix.elements[0]}|${w}x${h}`;
+    if (key === layoutKey || !w || !h) return;
+    layoutKey = key;
+    let unsized = false;
+    const dist = camera.position.distanceTo(controls.target);
+    const t = THREE.MathUtils.smoothstep(dist, CALLOUT_BLEND.near, CALLOUT_BLEND.far); // 0 near .. 1 far
+    // verdict badge rect in canvas px (labels are kept out from under it)
+    const cr = renderer.domElement.getBoundingClientRect();
+    const box = (id) => {
+      const el = document.getElementById(id);
+      if (!el || !el.offsetWidth) return null;
+      const b = el.getBoundingClientRect();
+      return { l: b.left - cr.left, r: b.right - cr.left, t: b.top - cr.top, b: b.bottom - cr.top };
+    };
+    const badge = box('status-badge'); // labels drop below it
+    const mag = box('mag-badge'); // labels lift above it
+    dynamic.traverse((o) => {
+      const c = o.userData.callout;
+      if (!c) return;
+      // anchor: blend of near/far anchors (world)
+      _a.lerpVectors(c.near.anchor, c.far.anchor, t);
+      // NEAR target: anchor projected + fixed px; FAR target: fixed world point projected
+      _n.copy(c.near.anchor).project(camera);
+      _n.x += (2 * c.near.px[0]) / w;
+      _n.y -= (2 * c.near.px[1]) / h;
+      _f.copy(c.far.at).project(camera);
+      _n.lerp(_f, t); // NDC blend
+      const cx = c.near.center[0] + t * (c.far.center[0] - c.near.center[0]);
+      const cy = c.near.center[1] + t * (c.far.center[1] - c.near.center[1]);
+      o.center.set(cx, cy);
+      // keep the label box inside the canvas (4 px margin)
+      const ew = o.element.offsetWidth;
+      const eh = o.element.offsetHeight;
+      if (!ew) unsized = true; // not in the DOM yet: lay out again next frame
+      let sx = ((_n.x + 1) / 2) * w;
+      let sy = ((1 - _n.y) / 2) * h;
+      const left = sx - cx * ew, top = sy - cy * eh;
+      sx += Math.max(0, 4 - left) - Math.max(0, left + ew - (w - 4));
+      sy += Math.max(0, 4 - top) - Math.max(0, top + eh - (h - 4));
+      if (badge) {
+        const l2 = sx - cx * ew, t2 = sy - cy * eh;
+        const under = l2 < badge.r && l2 + ew > badge.l && t2 < badge.b && t2 + eh > badge.t;
+        if (under && badge.b + 4 + eh <= h - 4) sy += badge.b + 4 - t2; // drop below the badge
+      }
+      if (mag) {
+        const l2 = sx - cx * ew, t2 = sy - cy * eh;
+        const under = l2 < mag.r && l2 + ew > mag.l && t2 < mag.b && t2 + eh > mag.t;
+        if (under && mag.t - 4 - eh >= (badge ? badge.b + 4 : 4)) sy -= t2 + eh - (mag.t - 4); // lift above it
+      }
+      _n.x = (sx / w) * 2 - 1;
+      _n.y = 1 - (sy / h) * 2;
+      _n.unproject(camera);
+      o.position.copy(_n);
+      c.leader.geometry.setPositions([_a.x, _a.y, _a.z, _n.x, _n.y, _n.z]);
+    });
+    if (unsized) layoutKey = '';
   }
 
   function frame() {
     controls.update();
+    layoutCallouts();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
     requestAnimationFrame(frame);
@@ -272,16 +366,20 @@ function buildZone(R, inTol, M) {
     const y = TP.y + R * Math.sin(a);
     g.add(fatLine([[x, y, 0], [x, y, H]], { color, width: 1.5, onTop: true, opacity: 0.8 }));
   }
-  // Label so the cylinder is not mistaken for a gage pin. Sits to the left
-  // (in front of the zone, toward the default camera) on a leader, clear of the
-  // TOP/BOTTOM/slide handle labels and the basic dimensions.
-  const anchor = [TP.x, TP.y - R, 0];
-  const at = [TP.x + 2, TP.y - Math.max(R, 6) - 16, 0];
-  g.add(fatLine([anchor, at], { color, width: 2, onTop: true }));
+  // Label so the cylinder is not mistaken for a gage pin. Anchored on the zone's
+  // +X side at the top; placed CALLOUT_PX.zone screen px to the right
+  // (the "hole's actual axis" label sits lower right), clear of the TOP/BOTTOM
+  // handle labels at any zoom.
+  const anchor = new THREE.Vector3(TP.x + R, TP.y, H);
+  const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
   const factor = M === 1 ? 'shown ×1, true size' : `shown ×${M}`;
-  const zl = label(`position zone ⌀${SPEC.position.tolerance}<br>(${factor}, not a pin)`, `zone-label ${inTol ? 'pass' : 'fail'}`, at);
-  zl.center.set(0.5, 0); // hangs below the leader end
-  g.add(zl);
+  const zl = label(`position zone ⌀${SPEC.position.tolerance}<br>(${factor}, not a pin)`, `zone-label ${inTol ? 'pass' : 'fail'}`, anchor.toArray());
+  zl.userData.callout = {
+    leader,
+    near: { anchor, px: CALLOUT_PX.zone, center: [0, 0.5] }, // left edge at leader end
+    far: { anchor: new THREE.Vector3(TP.x, TP.y - R, 0), at: new THREE.Vector3(TP.x + 2, TP.y - Math.max(R, 6) - 16, 0), center: [0.5, 0] }, // hangs below
+  };
+  g.add(leader, zl);
   return g;
 }
 
@@ -297,14 +395,19 @@ function buildAxis(vb, vt, result) {
   g.add(fatLine([[vb.x - dx * ext, vb.y - dy * ext, -ext], [vb.x, vb.y, 0]], { color, width: 2, onTop: true, opacity: 0.45 }));
   g.add(fatLine([[vt.x, vt.y, H], [vt.x + dx * ext, vt.y + dy * ext, H + ext]], { color, width: 2, onTop: true, opacity: 0.45 }));
   g.add(fatLine([[vb.x, vb.y, 0], [vt.x, vt.y, H]], { color, width: 7, onTop: true }));
-  // "hole's actual axis" label, leader from 30% up the axis to the lower right
-  const s = 0.3;
-  const p = [vb.x + s * (vt.x - vb.x), vb.y + s * (vt.y - vb.y), s * H];
-  const at = [vb.x + HOLE_R + 26, vb.y - 13, 0]; // follows the axis so spacing to the handle labels stays constant
-  g.add(fatLine([p, at], { color, width: 2, onTop: true }));
-  const al = label("hole's actual axis", `axis-name-label ${result.inTolerance ? 'pass' : 'fail'}`, at);
-  al.center.set(0, 0.5); // left edge at the leader end
-  g.add(al);
+  // "hole's actual axis" label: anchored 10% up the axis, placed CALLOUT_PX.axis
+  // screen px to the lower right (leader length scales with camera distance).
+  const s = 0.1;
+  const anchor = new THREE.Vector3(vb.x + s * (vt.x - vb.x), vb.y + s * (vt.y - vb.y), s * H);
+  const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
+  const al = label("hole's actual axis", `axis-name-label ${result.inTolerance ? 'pass' : 'fail'}`, anchor.toArray());
+  const farAnchor = new THREE.Vector3(vb.x + 0.3 * (vt.x - vb.x), vb.y + 0.3 * (vt.y - vb.y), 0.3 * H);
+  al.userData.callout = {
+    leader,
+    near: { anchor, px: CALLOUT_PX.axis, center: [0, 0.5] }, // left edge at leader end
+    far: { anchor: farAnchor, at: new THREE.Vector3(vb.x + HOLE_R + 26, vb.y - 13, 0), center: [0, 0.5] },
+  };
+  g.add(leader, al);
   // radial offset r at each end (true position -> endpoint)
   for (const [v, z, end] of [[vb, 0, result.bottom], [vt, H, result.top]]) {
     g.add(fatLine([[TP.x, TP.y, z], [v.x, v.y, z]], { color: end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));

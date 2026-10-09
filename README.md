@@ -75,7 +75,12 @@ Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
   zone ⌀0.25 (shown ×N, not a pin)"*. N updates live with the slider, and at
   ×1 it reads "shown ×1, true size". This is there because testers mistook the
   zone for a gage pin. The bold line is labelled *"hole's actual axis"*. The
-  inset labels its circle *"⌀0.25 position zone"*.
+  inset labels its circle *"⌀0.25 position zone"*. When you zoom in, the
+  zone and axis labels stay a fixed number of screen pixels beside the hole,
+  so their leader lines get shorter in model terms. At overview distance they
+  use the original fixed layout, with a smooth blend in between. They are also
+  kept inside the 3D view and out from under the verdict and ×N badges.
+  Positioning labels is display-only and changes no math.
 - **X-ray plate** makes the plate translucent so you can see the axis inside
   the bore. **Zoom to hole** is a close-up camera preset.
 - Console hook for checking by hand: `gdt.setAxis({top:{dx:0.1,dy:0}, bottom:{dx:-0.1,dy:0}})`,
@@ -87,6 +92,10 @@ The layout adapts to the screen with CSS only:
 - **Portrait phones and tablets** (and windows narrower than 700 px) stack the
   3D view on top (48% of the height) with the scrolling panel below.
 - **Landscape phones** keep the panel beside the view at about 46% of the width.
+- **Phones start in a hole close-up.** The phone breakpoint is the same media
+  query as the mobile CSS. The camera is framed so the verdict badge doesn't
+  cover the hole. Desktop and iPad start in the overview, and **Reset camera**
+  always returns there.
 - **Small 3D views** get a compact verdict badge (the size note is still shown)
   and move the ×N badge to the bottom-left.
 - **Touch controls** are sized for fingers (≥ 40 px buttons, taller sliders).

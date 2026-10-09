@@ -1,7 +1,7 @@
 // Wires state -> tolerance math -> 3D scene + UI readout.
 import { SPEC, VIEW, PRESETS } from './config.js';
 import { evaluatePosition } from './tolerance.js';
-import { createViewer } from './viewer/scene.js';
+import { createViewer, isPhone } from './viewer/scene.js';
 import { attachDrag } from './interaction.js';
 import { createUI } from './ui.js';
 
@@ -26,6 +26,9 @@ export function evaluate(s = state) {
 }
 
 const viewer = createViewer(document.getElementById('viewport'));
+// Phone-sized screens (PHONE_QUERY in scene.js) start in the hole close-up;
+// "Reset camera" still returns to the overview. Desktop/iPad start unchanged.
+if (isPhone()) viewer.zoomToHole();
 const ui = createUI(document.getElementById('panel'), {
   clampOffset,
   onChange: (patch) => setAxis(patch),

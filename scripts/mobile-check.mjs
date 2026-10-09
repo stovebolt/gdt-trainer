@@ -35,6 +35,32 @@ for (const name of DEVICES) {
   await page.waitForFunction(() => window.gdt?.ready === true, null, { timeout: 20000 });
   await page.waitForTimeout(700);
 
+  // ---- Starting camera: phones start in "Zoom to hole", others in the overview --
+  const OVERVIEW = [-22, -88, 92], HOLE = [28.5, -5.5, 42]; // HOLE = phoneHoleCamera() in scene.js
+  const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 0.5;
+  {
+    const isPhone = await page.evaluate(() => window.matchMedia('(max-width: 700px), (max-height: 500px)').matches);
+    const cam = await page.evaluate(() => window.gdt._debug.camera.position.toArray());
+    const want = isPhone ? HOLE : OVERVIEW;
+    check(`start view: ${isPhone ? 'phone -> Zoom to hole' : 'non-phone -> overview (unchanged)'}`, near(cam, want), `camera ${cam.map((v) => v.toFixed(1)).join(',')}`);
+    const startShot = `${OUT}/${slug(name)}-${isPhone ? 'zoomstart' : 'start'}-${TAG}.png`;
+    await page.screenshot({ path: startShot });
+    const li0 = await page.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect();
+      const cv = r(window.gdt._debug.canvas);
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const out = [];
+      for (const el of document.querySelectorAll('.zone-label, .axis-name-label, .handle-label')) {
+        const b = r(el);
+        if (b.left < cv.left || b.right > cv.right || b.top < cv.top || b.bottom > cv.bottom) out.push(`${el.innerText.slice(0, 14)} off-view`);
+      }
+      for (const a of document.querySelectorAll('.zone-label, .axis-name-label')) for (const h of document.querySelectorAll('.handle-label')) if (hit(r(a), r(h))) out.push(`${a.className.split(' ')[1]}~${h.innerText.split(' ')[0]}`);
+      const fonts = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label')].map((e) => parseFloat(getComputedStyle(e).fontSize));
+      return { out, minFont: Math.min(...fonts) };
+    });
+    check('start view: zone/axis/handle labels in view, no overlap, font >= 10px', li0.out.length === 0 && li0.minFont >= 10, `${li0.out.join(', ')} min font ${li0.minFont}px -> ${startShot}`);
+  }
+
   // ---- Layout -------------------------------------------------------------
   const L = await page.evaluate(() => {
     const rect = (el) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), right: Math.round(b.right) }; };
@@ -182,6 +208,9 @@ for (const name of DEVICES) {
 
   {
     // Pinch where the first finger lands ON the TOP handle: must zoom, not drag the axis.
+    // Start from the overview so the earlier pinch can't leave the camera at its zoom limit.
+    await page.evaluate(() => document.getElementById('reset-cam').click());
+    await page.waitForTimeout(100);
     await page.evaluate(() => window.gdt.applyPreset('tilt-in'));
     await page.waitForTimeout(100);
     const h = await handleXY('top');
@@ -194,7 +223,7 @@ for (const name of DEVICES) {
     await page.waitForTimeout(600);
     const d1 = await dist(); const after = await state();
     check('pinch starting on a handle zooms and leaves the axis unchanged', d1 < d0 - 0.5 && JSON.stringify(before) === JSON.stringify(after), `distance ${d0.toFixed(1)}->${d1.toFixed(1)}, axis ${JSON.stringify(before) === JSON.stringify(after) ? 'unchanged' : 'CHANGED ' + JSON.stringify(after)}`);
-    await page.evaluate(() => window.gdt._debug.controls?.reset?.());
+    await page.evaluate(() => document.getElementById('reset-cam').click()); // app's own overview reset
   }
 
   // ---- Inset touch drags -----------------------------------------------------
@@ -225,7 +254,11 @@ for (const name of DEVICES) {
     const ui = await page.evaluate(() => ({ r: document.querySelector('#row-top .r').innerText, mark: document.querySelector('#row-top .mark').innerText, inTol: window.gdt.result().top.inside }));
     check('slider responds to tap; readout consistent', s.t.dx > 0.1 && ui.mark.includes(ui.inTol ? 'PASS' : 'FAIL'), `top.dx=${s.t.dx} row "${ui.r}" ${ui.mark}`);
     const num = page.locator('#n-top-dy');
-    await num.tap();
+    await num.scrollIntoViewIfNeeded();
+    const nb = await num.boundingBox();
+    await page.touchscreen.tap(nb.x + nb.width / 2, nb.y + nb.height / 2); // real touch tap focuses the input
+    const focused = await page.evaluate(() => document.activeElement?.id);
+    if (focused !== 'n-top-dy') check('number input focuses on tap', false, `active=${focused}`);
     await num.fill('0.0500');
     await num.press('Enter');
     await num.blur();
@@ -234,6 +267,15 @@ for (const name of DEVICES) {
     check('number input accepts typed value', Math.abs(s2.t.dy - 0.05) < 1e-9, `top.dy=${s2.t.dy}`);
   }
 
+  {
+    const btn = page.locator('#reset-cam');
+    await btn.scrollIntoViewIfNeeded();
+    const bb = await btn.boundingBox();
+    await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2); // real touch tap
+    await page.waitForTimeout(300);
+    const cam = await page.evaluate(() => window.gdt._debug.camera.position.toArray());
+    check('Reset camera tap returns to the overview', near(cam, OVERVIEW), `camera ${cam.map((v) => v.toFixed(1)).join(',')}`);
+  }
   check('no console errors/warnings', errors.length === 0, errors.slice(0, 5).join(' | '));
   report.push({ device: name, viewport: desc.viewport, layout: L, checks, screenshots: [shot, full] });
   console.log(`\n=== ${name} (${desc.viewport.width}x${desc.viewport.height}, dpr ${desc.deviceScaleFactor}) ===`);

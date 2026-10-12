@@ -65,7 +65,18 @@ export function createViewer(container) {
   sun.position.set(-40, -80, 120);
   scene.add(sun);
 
-  scene.add(buildStatic());
+  const staticGroup = buildStatic();
+  scene.add(staticGroup);
+  const drawing = staticGroup.getObjectByName('drawing');
+  let showDrawing = true;
+  /** "Show drawing" toggle: datums, origin axes, true-position callout, basic
+   *  dimensions, in-scene FCF + its leader. Display only. */
+  function setDrawing(on) {
+    showDrawing = !!on;
+    drawing.visible = showDrawing;
+    dynamic.traverse((o) => { if (o.userData.drawing) o.visible = showDrawing; });
+    layoutKey = '';
+  }
 
   const dynamic = new THREE.Group();
   scene.add(dynamic);
@@ -104,7 +115,10 @@ export function createViewer(container) {
     dynamic.add(buildPlate(vb, vt, state.xray));
     dynamic.add(buildZone(visualZoneRadius(SPEC.position.tolerance, M), result.inTolerance, M));
     dynamic.add(buildAxis(vb, vt, result));
-    dynamic.add(buildLeader(vt));
+    const leader = buildLeader(vt);
+    leader.userData.drawing = true;
+    leader.visible = showDrawing;
+    dynamic.add(leader);
     handles.place(vb, vt, result);
     layoutKey = ''; // force callout layout
   }
@@ -134,6 +148,7 @@ export function createViewer(container) {
     };
     const badge = box('status-badge'); // labels drop below it
     const mag = box('mag-badge'); // labels lift above it
+    const chip = box('fcf-chip'); // phone-only FCF chip (bottom-right)
     dynamic.traverse((o) => {
       const c = o.userData.callout;
       if (!c) return;
@@ -167,12 +182,36 @@ export function createViewer(container) {
         const under = l2 < mag.r && l2 + ew > mag.l && t2 < mag.b && t2 + eh > mag.t;
         if (under && mag.t - 4 - eh >= (badge ? badge.b + 4 : 4)) sy -= t2 + eh - (mag.t - 4); // lift above it
       }
+      if (chip) {
+        const l2 = sx - cx * ew, t2 = sy - cy * eh;
+        const under = l2 < chip.r && l2 + ew > chip.l && t2 < chip.b && t2 + eh > chip.t;
+        if (under && chip.t - 4 - eh >= (badge ? badge.b + 4 : 4)) sy -= t2 + eh - (chip.t - 4); // lift above it
+      }
       _n.x = (sx / w) * 2 - 1;
       _n.y = 1 - (sy / h) * 2;
       _n.unproject(camera);
       o.position.copy(_n);
       c.leader.geometry.setPositions([_a.x, _a.y, _a.z, _n.x, _n.y, _n.z]);
     });
+    // Phones: keep the TOP/BOTTOM readout tags inside the 3D view.
+    if (isPhone()) {
+      for (const lbl of handles.labels) {
+        lbl.position.copy(lbl.userData.base);
+        const ew = lbl.element.offsetWidth, eh = lbl.element.offsetHeight;
+        if (!ew || !lbl.parent) { if (!ew) unsized = true; continue; }
+        lbl.getWorldPosition(_n).project(camera);
+        if (_n.z < -1 || _n.z > 1) continue;
+        const sx = ((_n.x + 1) / 2) * w, sy = ((1 - _n.y) / 2) * h;
+        const left = sx - ew / 2, top = sy - eh / 2;
+        const dx = Math.max(0, 4 - left) - Math.max(0, left + ew - (w - 4));
+        const dy = Math.max(0, 4 - top) - Math.max(0, top + eh - (h - 4));
+        if (!dx && !dy) continue;
+        _n.x += (2 * dx) / w;
+        _n.y -= (2 * dy) / h;
+        _n.unproject(camera);
+        lbl.position.copy(lbl.parent.worldToLocal(_n));
+      }
+    }
     if (unsized) layoutKey = '';
   }
 
@@ -185,7 +224,7 @@ export function createViewer(container) {
   }
   requestAnimationFrame(frame);
 
-  return { scene, camera, renderer, controls, handles, update, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement };
+  return { scene, camera, renderer, controls, handles, update, setDrawing, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +234,8 @@ export function createViewer(container) {
 function buildStatic() {
   const g = new THREE.Group();
   g.name = 'static';
+  const d = new THREE.Group(); // everything behind the "Show drawing" toggle
+  d.name = 'drawing';
 
   // Datum planes (A primary, B secondary, C tertiary) as translucent sheets.
   const sheet = (w, h, color) =>
@@ -211,31 +252,31 @@ function buildStatic() {
   const c = sheet(L + 2 * pad, H + 14, COLORS.datumC);
   c.rotation.x = Math.PI / 2; // into the XZ plane
   c.position.set(L / 2, -0.4, H / 2);
-  g.add(a, b, c);
+  d.add(a, b, c);
 
   // Plane borders
   const rect = (pts, color) => fatLine([...pts, pts[0]], { color, width: 1.5, opacity: 0.7 });
-  g.add(rect([[-pad, -pad, -0.4], [L + pad, -pad, -0.4], [L + pad, W + pad, -0.4], [-pad, W + pad, -0.4]], COLORS.datumA));
-  g.add(rect([[-0.4, -pad, -7], [-0.4, W + pad, -7], [-0.4, W + pad, H + 7], [-0.4, -pad, H + 7]], COLORS.datumB));
-  g.add(rect([[-pad, -0.4, -7], [L + pad, -0.4, -7], [L + pad, -0.4, H + 7], [-pad, -0.4, H + 7]], COLORS.datumC));
+  d.add(rect([[-pad, -pad, -0.4], [L + pad, -pad, -0.4], [L + pad, W + pad, -0.4], [-pad, W + pad, -0.4]], COLORS.datumA));
+  d.add(rect([[-0.4, -pad, -7], [-0.4, W + pad, -7], [-0.4, W + pad, H + 7], [-0.4, -pad, H + 7]], COLORS.datumB));
+  d.add(rect([[-pad, -0.4, -7], [L + pad, -0.4, -7], [L + pad, -0.4, H + 7], [-pad, -0.4, H + 7]], COLORS.datumC));
 
   // Datum labels (datum feature symbol style: boxed letter)
-  g.add(label('<span class="dfs">A</span><small>primary · bottom face z=0</small>', 'datum datum-a', [L + pad - 2, -pad + 2, -0.4]));
-  g.add(label('<span class="dfs">B</span><small>secondary · left edge x=0</small>', 'datum datum-b', [-0.4, W + pad - 4, H + 7]));
-  g.add(label('<span class="dfs">C</span><small>tertiary · front edge y=0</small>', 'datum datum-c', [62, -0.4, H + 7]));
+  d.add(label('<span class="dfs">A</span><small>primary · bottom face z=0</small>', 'datum datum-a', [L + pad - 2, -pad + 2, -0.4]));
+  d.add(label('<span class="dfs">B</span><small>secondary · left edge x=0</small>', 'datum datum-b', [-0.4, W + pad - 4, H + 7]));
+  d.add(label('<span class="dfs">C</span><small>tertiary · front edge y=0</small>', 'datum datum-c', [62, -0.4, H + 7]));
 
   // DRF origin axes
   const axLen = 14;
   for (const [dir, name] of [[[axLen, 0, 0], '+X'], [[0, axLen, 0], '+Y'], [[0, 0, axLen], '+Z']]) {
-    g.add(fatLine([[0, 0, 0], dir], { color: COLORS.ink, width: 2.5 }));
-    if (name !== '+Z') g.add(arrowHead([0, 0, 0], dir, 2.2, { color: COLORS.ink, width: 2.5 }));
-    g.add(label(name, 'axis-label', dir.map((v) => v * 1.12)));
+    d.add(fatLine([[0, 0, 0], dir], { color: COLORS.ink, width: 2.5 }));
+    if (name !== '+Z') d.add(arrowHead([0, 0, 0], dir, 2.2, { color: COLORS.ink, width: 2.5 }));
+    d.add(label(name, 'axis-label', dir.map((v) => v * 1.12)));
   }
-  g.add(label('origin (A∩B∩C)', 'axis-label small', [-2, -2, -2]));
+  d.add(label('origin (A∩B∩C)', 'axis-label small', [-2, -2, -2]));
 
   // True position: dashed basic axis through the zone, plus crosshair on top face
   g.add(fatLine([[TP.x, TP.y, -8], [TP.x, TP.y, H + 9]], { color: COLORS.truePos, width: 2, dashed: true, dashSize: 1.2, gapSize: 0.9 }));
-  g.add(label(`True position<br><b>(${fmt(TP.x)}, ${fmt(TP.y)})</b>`, 'tp-label', [TP.x - 9, TP.y + 4, H + 12]));
+  d.add(label(`True position<br><b>(${fmt(TP.x)}, ${fmt(TP.y)})</b>`, 'tp-label', [TP.x - 9, TP.y + 4, H + 12]));
 
   // BASIC dimensions on the top face (boxed numbers = basic)
   const z = H + 0.05;
@@ -244,17 +285,17 @@ function buildStatic() {
   const dimOpts = { color: COLORS.ink, width: 2 };
   const extOpts = { color: COLORS.ink, width: 1.2, dashed: true, dashSize: 0.8, gapSize: 0.6 };
   // 35 from B
-  g.add(fatLine([[0, yDimX, z], [TP.x, yDimX, z]], dimOpts));
-  g.add(arrowHead([TP.x, yDimX, z], [0, yDimX, z], 2.2, dimOpts));
-  g.add(arrowHead([0, yDimX, z], [TP.x, yDimX, z], 2.2, dimOpts));
-  g.add(fatLine([[TP.x, TP.y + HOLE_R + 2, z], [TP.x, yDimX + 2, z]], extOpts));
-  g.add(label(`<span class="basic">${SPEC.basic.fromB}</span>`, 'dim', [TP.x / 2, yDimX, z]));
+  d.add(fatLine([[0, yDimX, z], [TP.x, yDimX, z]], dimOpts));
+  d.add(arrowHead([TP.x, yDimX, z], [0, yDimX, z], 2.2, dimOpts));
+  d.add(arrowHead([0, yDimX, z], [TP.x, yDimX, z], 2.2, dimOpts));
+  d.add(fatLine([[TP.x, TP.y + HOLE_R + 2, z], [TP.x, yDimX + 2, z]], extOpts));
+  d.add(label(`<span class="basic">${SPEC.basic.fromB}</span>`, 'dim', [TP.x / 2, yDimX, z]));
   // 30 from C
-  g.add(fatLine([[xDimY, 0, z], [xDimY, TP.y, z]], dimOpts));
-  g.add(arrowHead([xDimY, TP.y, z], [xDimY, 0, z], 2.2, dimOpts));
-  g.add(arrowHead([xDimY, 0, z], [xDimY, TP.y, z], 2.2, dimOpts));
-  g.add(fatLine([[TP.x - HOLE_R - 2, TP.y, z], [xDimY - 2, TP.y, z]], extOpts));
-  g.add(label(`<span class="basic">${SPEC.basic.fromC}</span>`, 'dim', [xDimY, TP.y / 2, z]));
+  d.add(fatLine([[xDimY, 0, z], [xDimY, TP.y, z]], dimOpts));
+  d.add(arrowHead([xDimY, TP.y, z], [xDimY, 0, z], 2.2, dimOpts));
+  d.add(arrowHead([xDimY, 0, z], [xDimY, TP.y, z], 2.2, dimOpts));
+  d.add(fatLine([[TP.x - HOLE_R - 2, TP.y, z], [xDimY - 2, TP.y, z]], extOpts));
+  d.add(label(`<span class="basic">${SPEC.basic.fromC}</span>`, 'dim', [xDimY, TP.y / 2, z]));
 
   // Feature control frame + size callout
   const fcf = `
@@ -263,7 +304,8 @@ function buildStatic() {
       <td class="sym"><svg class="possym" viewBox="-10 -10 20 20" aria-label="position"><circle r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M-9 0H9M0 -9V9" stroke="currentColor" stroke-width="2"/></svg></td><td>⌀${SPEC.position.tolerance.toFixed(2)}</td>
       ${SPEC.position.datums.map((d) => `<td>${d}</td>`).join('')}
     </tr></table>`;
-  g.add(label(fcf, 'fcf-label', FCF_ANCHOR));
+  d.add(label(fcf, 'fcf-label', FCF_ANCHOR));
+  g.add(d);
   return g;
 }
 
@@ -453,6 +495,7 @@ function buildHandles() {
   top.add(topLabel);
   bottom.add(botLabel);
   mid.add(midLabel);
+  for (const l of [topLabel, botLabel]) l.userData.base = l.position.clone();
 
   function place(vb, vt, result) {
     bottom.position.set(vb.x, vb.y, 0);
@@ -464,5 +507,5 @@ function buildHandles() {
     topLabel.element.textContent = txt('TOP z=10', result.top);
     botLabel.element.textContent = txt('BOTTOM z=0', result.bottom);
   }
-  return { group, top, bottom, mid, list: [top, bottom, mid], place };
+  return { group, top, bottom, mid, list: [top, bottom, mid], labels: [topLabel, botLabel], place };
 }

@@ -152,3 +152,14 @@ button:hover { background: #e2e8f0; }
   .mag-badge { font-size: 10px; padding: 2px 6px; }
   .zone-label { white-space: normal; max-width: 112px; }
 }
+
+/* Phone declutter: compact always-visible FCF chip + "Show drawing" toggle.
+   Hidden outside the phone breakpoint so desktop/iPad are unchanged. */
+.fcf-chip, .phone-only { display: none; }
+@media (max-width: 700px), (max-height: 500px) {
+  .phone-only { display: flex; }
+  .fcf-chip { display: block; position: absolute; right: 8px; bottom: 8px; z-index: 5; pointer-events: none; }
+  .fcf-chip table.fcf { border-collapse: collapse; background: #fff; font: 700 12px/1 system-ui; color: var(--ink); }
+  .fcf-chip table.fcf td { border: 2px solid var(--ink); padding: 3px 5px; text-align: center; }
+  .fcf-chip .possym { width: 13px; height: 13px; display: block; }
+}

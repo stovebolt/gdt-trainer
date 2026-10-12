@@ -13,6 +13,7 @@ const state = {
   top: { dx: 0, dy: 0 }, //    axis crossing at z = 10
   magnification: VIEW.defaultMagnification,
   xray: true,
+  drawing: !isPhone(), // phones start decluttered; "Show drawing" brings it back
 };
 
 export function evaluate(s = state) {
@@ -26,6 +27,8 @@ export function evaluate(s = state) {
 }
 
 const viewer = createViewer(document.getElementById('viewport'));
+// Phone-only compact FCF chip (CSS hides it elsewhere); same content as the drawing's FCF.
+document.getElementById('fcf-chip').innerHTML = `<table class="fcf"><tr><td class="sym"><svg class="possym" viewBox="-10 -10 20 20" aria-label="position"><circle r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M-9 0H9M0 -9V9" stroke="currentColor" stroke-width="2"/></svg></td><td>⌀${SPEC.position.tolerance.toFixed(2)}</td>${SPEC.position.datums.map((d) => `<td>${d}</td>`).join('')}</tr></table>`;
 // Phone-sized screens (PHONE_QUERY in scene.js) start in the hole close-up;
 // "Reset camera" still returns to the overview. Desktop/iPad start unchanged.
 if (isPhone()) viewer.zoomToHole();
@@ -35,6 +38,7 @@ const ui = createUI(document.getElementById('panel'), {
   onPreset: (id) => applyPreset(id),
   onMagnification: (m) => { state.magnification = m; refresh(); },
   onXray: (on) => { state.xray = on; refresh(); },
+  onDrawing: (on) => { state.drawing = on; refresh(); },
   onResetCamera: () => viewer.resetCamera(),
   onZoomHole: () => viewer.zoomToHole(),
 });
@@ -64,6 +68,7 @@ let last;
 function refresh() {
   last = evaluate();
   viewer.update(state, last);
+  viewer.setDrawing(state.drawing);
   ui.render(state, last);
 }
 refresh();
@@ -75,6 +80,7 @@ window.gdt = {
   applyPreset,
   result: () => last,
   setMagnification: (m) => { state.magnification = m; refresh(); },
+  setDrawing: (on) => { state.drawing = !!on; refresh(); },
   _debug: { handles: viewer.handles, camera: viewer.camera, canvas: viewer.domElement, controls: viewer.controls },
   ready: true,
 };

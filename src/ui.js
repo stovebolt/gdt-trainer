@@ -7,7 +7,7 @@ const TOL = SPEC.position.tolerance;
 const R = TOL / 2;
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-export function createUI(root, { onChange, onPreset, onMagnification, onXray, onResetCamera, onZoomHole, clampOffset }) {
+export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onResetCamera, onZoomHole, clampOffset }) {
   root.innerHTML = template();
   const $ = (sel) => root.querySelector(sel);
 
@@ -32,6 +32,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
   }
   $('#mag').addEventListener('input', (e) => onMagnification(Number(e.target.value)));
   $('#xray').addEventListener('change', (e) => onXray(e.target.checked));
+  $('#drawing').addEventListener('change', (e) => onDrawing?.(e.target.checked));
   $('#reset-cam').addEventListener('click', onResetCamera);
   $('#zoom-hole').addEventListener('click', onZoomHole);
 
@@ -46,6 +47,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#mag').value = String(state.magnification);
     $('#mag-val').textContent = `×${state.magnification}`;
     $('#xray').checked = state.xray;
+    $('#drawing').checked = state.drawing;
 
     for (const end of ['bottom', 'top']) {
       const e = res[end];
@@ -215,6 +217,7 @@ function template() {
   <section>
     <h2>View</h2>
     <label class="ctl"><span>Exaggeration</span><input type="range" id="mag" min="${VIEW.minMagnification}" max="${VIEW.maxMagnification}" step="1"/><b id="mag-val"></b></label>
+    <label class="check phone-only"><input type="checkbox" id="drawing"/> Show drawing (datums, basic 35/30, true position, ⌀10.1 callout, FCF leader)</label>
     <label class="check"><input type="checkbox" id="xray"/> X-ray plate (see the axis inside the hole)</label>
     <button id="reset-cam">Reset camera</button> <button id="zoom-hole">Zoom to hole</button>
     <p class="muted small">3D view: drag the <b>TOP</b> / <b>BOTTOM</b> spheres to tilt, the white <b>slide</b> sphere to shift. Left-drag elsewhere to orbit, right-drag to pan, wheel to zoom.</p>

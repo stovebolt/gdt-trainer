@@ -61,6 +61,52 @@ for (const name of DEVICES) {
     check('start view: zone/axis/handle labels in view, no overlap, font >= 10px', li0.out.length === 0 && li0.minFont >= 10, `${li0.out.join(', ')} min font ${li0.minFont}px -> ${startShot}`);
   }
 
+  // ---- Phone declutter: drawing hidden by default, FCF chip always visible --
+  {
+    const isPhone = await page.evaluate(() => window.matchMedia('(max-width: 700px), (max-height: 500px)').matches);
+    const DRAWING = '.tp-label, .dim, .fcf-label, .datum, .axis-label';
+    const probe = () => page.evaluate((sel) => {
+      const r = (e) => e.getBoundingClientRect();
+      const shown = (e) => e && getComputedStyle(e).display !== 'none' && r(e).width > 0;
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const drawingShown = [...document.querySelectorAll(sel)].filter(shown).length;
+      const chip = document.getElementById('fcf-chip');
+      const toggle = document.getElementById('drawing');
+      const chipHits = [];
+      if (shown(chip)) {
+        const cb = r(chip), cv = r(window.gdt._debug.canvas);
+        if (cb.left < cv.left || cb.right > cv.right || cb.top < cv.top || cb.bottom > cv.bottom) chipHits.push('off-view');
+        for (const e of document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, #status-badge, #mag-badge')) if (shown(e) && hit(cb, r(e))) chipHits.push(e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0]);
+        const cam = window.gdt._debug.camera, hv = window.gdt._debug.handles;
+        for (const k of ['top', 'bottom', 'mid']) { const v = hv[k].position.clone().project(cam); const x = cv.left + (v.x + 1) / 2 * cv.width, y = cv.top + (1 - v.y) / 2 * cv.height; if (x > cb.left - 6 && x < cb.right + 6 && y > cb.top - 6 && y < cb.bottom + 6) chipHits.push(k + ' handle'); }
+      }
+      return { drawingShown, chip: shown(chip), chipText: chip?.innerText.replace(/\s+/g, ' ').trim(), chipHits, toggleShown: shown(toggle?.closest('label')), toggleOn: !!toggle?.checked };
+    }, DRAWING);
+    const p0 = await probe();
+    if (isPhone) {
+      check('declutter: drawing hidden by default on phones, toggle off', p0.drawingShown === 0 && p0.toggleShown && !p0.toggleOn, `drawing labels shown ${p0.drawingShown}, toggle shown ${p0.toggleShown} on ${p0.toggleOn}`);
+      check('declutter: FCF chip visible, clear of hole/handles/labels/badges', p0.chip && /⌀0\.25 A B C/.test(p0.chipText) && p0.chipHits.length === 0, `"${p0.chipText}" ${p0.chipHits.join(', ')}`);
+      const tapToggle = async () => {
+        await page.evaluate(() => document.getElementById('drawing').scrollIntoView({ block: 'center' }));
+        await page.waitForTimeout(200);
+        const bb = await page.locator('#drawing').boundingBox();
+        await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2);
+        await page.waitForTimeout(400);
+      };
+      await tapToggle();
+      const p1 = await probe();
+      await page.screenshot({ path: `${OUT}/${slug(name)}-drawing-on-${TAG}.png` });
+      check('declutter: "Show drawing" tap shows drawing (chip stays)', p1.drawingShown >= 5 && p1.toggleOn && p1.chip, `drawing labels shown ${p1.drawingShown}`);
+      await tapToggle();
+      const p2 = await probe();
+      check('declutter: tapping again hides drawing', p2.drawingShown === 0 && !p2.toggleOn && p2.chip, `drawing labels shown ${p2.drawingShown}`);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.evaluate(() => { const pn = document.getElementById('panel'); pn.scrollTop = 0; });
+    } else {
+      check('declutter: non-phone unchanged (drawing shown, no chip/toggle)', p0.drawingShown >= 5 && !p0.chip && !p0.toggleShown && p0.toggleOn, `drawing labels shown ${p0.drawingShown}, chip ${p0.chip}, toggle ${p0.toggleShown}`);
+    }
+  }
+
   // ---- Layout -------------------------------------------------------------
   const L = await page.evaluate(() => {
     const rect = (el) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), right: Math.round(b.right) }; };

@@ -96,6 +96,17 @@ The layout adapts to the screen with CSS only:
   query as the mobile CSS. The camera is framed so the verdict badge doesn't
   cover the hole. Desktop and iPad start in the overview, and **Reset camera**
   always returns there.
+- **Phones start decluttered.** The 3D view shows only the zone and its
+  label, the actual axis and its label, the TOP/BOTTOM/slide handles, the
+  verdict badge with the size note, and a compact feature control frame chip
+  (⊕ ⌀0.25 |A|B|C|) in the bottom-right corner that is always visible. The
+  **Show drawing** toggle in the View section (off by default on phones)
+  brings back the datum planes and labels, origin axes, the true-position
+  callout, basic 35/30, the ⌀10.1 ±0.1 THRU callout and the in-scene FCF with
+  its leader. The true-position dashed axis always stays visible. On phones
+  the TOP/BOTTOM readout tags are also kept inside the 3D view. Desktop and
+  iPad don't show the toggle or the chip and look exactly as before. All of
+  this is display only.
 - **Small 3D views** get a compact verdict badge (the size note is still shown)
   and move the ×N badge to the bottom-left.
 - **Touch controls** are sized for fingers (≥ 40 px buttons, taller sliders).

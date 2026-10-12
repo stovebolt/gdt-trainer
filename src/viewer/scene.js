@@ -148,7 +148,7 @@ export function createViewer(container) {
     };
     const badge = box('status-badge'); // labels drop below it
     const mag = box('mag-badge'); // labels lift above it
-    const chip = box('fcf-chip'); // phone-only FCF chip (bottom-right)
+    const chip = box('hud-br'); // phone-only "Show drawing" button + FCF chip (bottom-right)
     dynamic.traverse((o) => {
       const c = o.userData.callout;
       if (!c) return;

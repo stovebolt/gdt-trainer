@@ -73,37 +73,43 @@ for (const name of DEVICES) {
       const chip = document.getElementById('fcf-chip');
       const toggle = document.getElementById('drawing');
       const chipHits = [];
+      const btn = document.getElementById('drawing-btn');
+      const bt = btn && r(btn);
+      const btnInfo = shown(btn) ? { w: Math.round(bt.width), h: Math.round(bt.height), inViewport: bt.top >= 0 && bt.bottom <= innerHeight && bt.left >= 0 && bt.right <= innerWidth, text: btn.innerText, pressed: btn.getAttribute('aria-pressed') } : null;
+      const hud = document.getElementById('hud-br');
       if (shown(chip)) {
-        const cb = r(chip), cv = r(window.gdt._debug.canvas);
+        const cb = r(hud), cv = r(window.gdt._debug.canvas);
+        const za = [...document.querySelectorAll('.zone-label, .axis-name-label')].filter(shown);
+        if (za.length === 2 && hit(r(za[0]), r(za[1]))) chipHits.push('zone~axis');
         if (cb.left < cv.left || cb.right > cv.right || cb.top < cv.top || cb.bottom > cv.bottom) chipHits.push('off-view');
         for (const e of document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, #status-badge, #mag-badge')) if (shown(e) && hit(cb, r(e))) chipHits.push(e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0]);
         const cam = window.gdt._debug.camera, hv = window.gdt._debug.handles;
         for (const k of ['top', 'bottom', 'mid']) { const v = hv[k].position.clone().project(cam); const x = cv.left + (v.x + 1) / 2 * cv.width, y = cv.top + (1 - v.y) / 2 * cv.height; if (x > cb.left - 6 && x < cb.right + 6 && y > cb.top - 6 && y < cb.bottom + 6) chipHits.push(k + ' handle'); }
       }
-      return { drawingShown, chip: shown(chip), chipText: chip?.innerText.replace(/\s+/g, ' ').trim(), chipHits, toggleShown: shown(toggle?.closest('label')), toggleOn: !!toggle?.checked };
+      return { btnInfo, drawingShown, chip: shown(chip), chipText: chip?.innerText.replace(/\s+/g, ' ').trim(), chipHits, toggleShown: shown(toggle?.closest('label')), toggleOn: !!toggle?.checked };
     }, DRAWING);
     const p0 = await probe();
     if (isPhone) {
       check('declutter: drawing hidden by default on phones, toggle off', p0.drawingShown === 0 && p0.toggleShown && !p0.toggleOn, `drawing labels shown ${p0.drawingShown}, toggle shown ${p0.toggleShown} on ${p0.toggleOn}`);
-      check('declutter: FCF chip visible, clear of hole/handles/labels/badges', p0.chip && /⌀0\.25 A B C/.test(p0.chipText) && p0.chipHits.length === 0, `"${p0.chipText}" ${p0.chipHits.join(', ')}`);
+      const b0 = p0.btnInfo;
+      check('declutter: "Show drawing" button in 3D view (no scroll), >= 40px, off', !!b0 && b0.inViewport && b0.h >= 40 && b0.w >= 40 && b0.pressed === 'false', JSON.stringify(b0));
+      check('declutter: FCF chip + button visible, clear of hole/handles/labels/badges', p0.chip && /⌀0\.25 A B C/.test(p0.chipText) && p0.chipHits.length === 0, `"${p0.chipText}" ${p0.chipHits.join(', ')}`);
       const tapToggle = async () => {
-        await page.evaluate(() => document.getElementById('drawing').scrollIntoView({ block: 'center' }));
-        await page.waitForTimeout(200);
-        const bb = await page.locator('#drawing').boundingBox();
+        const bb = await page.locator('#drawing-btn').boundingBox(); // no scrolling: it's in the 3D view
         await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2);
         await page.waitForTimeout(400);
       };
       await tapToggle();
       const p1 = await probe();
       await page.screenshot({ path: `${OUT}/${slug(name)}-drawing-on-${TAG}.png` });
-      check('declutter: "Show drawing" tap shows drawing (chip stays)', p1.drawingShown >= 5 && p1.toggleOn && p1.chip, `drawing labels shown ${p1.drawingShown}`);
+      check('declutter: button tap shows drawing (chip stays, panel toggle in sync, nothing overlaps)', p1.drawingShown >= 5 && p1.toggleOn && p1.chip && p1.btnInfo?.pressed === 'true' && p1.chipHits.length === 0, `drawing labels shown ${p1.drawingShown}, button "${p1.btnInfo?.text}" ${p1.chipHits.join(', ')}`);
       await tapToggle();
       const p2 = await probe();
-      check('declutter: tapping again hides drawing', p2.drawingShown === 0 && !p2.toggleOn && p2.chip, `drawing labels shown ${p2.drawingShown}`);
+      check('declutter: tapping again hides drawing', p2.drawingShown === 0 && !p2.toggleOn && p2.chip && p2.btnInfo?.pressed === 'false', `drawing labels shown ${p2.drawingShown}`);
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.evaluate(() => { const pn = document.getElementById('panel'); pn.scrollTop = 0; });
     } else {
-      check('declutter: non-phone unchanged (drawing shown, no chip/toggle)', p0.drawingShown >= 5 && !p0.chip && !p0.toggleShown && p0.toggleOn, `drawing labels shown ${p0.drawingShown}, chip ${p0.chip}, toggle ${p0.toggleShown}`);
+      check('declutter: non-phone unchanged (drawing shown, no chip/toggle)', p0.drawingShown >= 5 && !p0.chip && !p0.btnInfo && !p0.toggleShown && p0.toggleOn, `drawing labels shown ${p0.drawingShown}, chip ${p0.chip}, toggle ${p0.toggleShown}`);
     }
   }
 
@@ -234,7 +240,15 @@ for (const name of DEVICES) {
   const vr = await page.evaluate(() => { const b = window.gdt._debug.canvas.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; });
   {
     const before = await state(); const c0 = await camPos(); const s0 = await scrollPos();
-    await drag1(vr.x + vr.w * 0.82, vr.y + vr.h * 0.85, -60, -20);
+    // start on bare canvas (not on the HUD button/chip or a label)
+    const [ox, oy] = await page.evaluate(({ x, y, w, h }) => {
+      for (const [fx, fy] of [[0.82, 0.85], [0.6, 0.85], [0.85, 0.6], [0.3, 0.7], [0.5, 0.5]]) {
+        const px = x + w * fx, py = y + h * fy;
+        if (document.elementFromPoint(px, py) === window.gdt._debug.canvas) return [px, py];
+      }
+      return [x + w * 0.5, y + h * 0.5];
+    }, { x: vr.x, y: vr.y, w: vr.w, h: vr.h });
+    await drag1(ox, oy, -60, -20);
     await page.waitForTimeout(500);
     const after = await state(); const c1 = await camPos(); const s1 = await scrollPos();
     const camMoved = Math.hypot(c1[0] - c0[0], c1[1] - c0[1], c1[2] - c0[2]) > 1;

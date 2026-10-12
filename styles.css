@@ -40,6 +40,10 @@ section { border-top: 2px solid var(--line); margin-top: 10px; padding-top: 4px;
 .pos-line { font: 800 24px system-ui; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .overall.pass #pos-status { color: var(--in); }
 .overall.fail #pos-status { color: var(--out); }
+/* Stable layout: the status slot always reserves the width of the longest
+   string, so IN <-> OUT never changes how the line wraps (no panel jump). */
+#pos-status { display: inline-block; white-space: nowrap; }
+#pos-status::after { content: 'OUT OF TOLERANCE'; display: block; height: 0; overflow: hidden; visibility: hidden; }
 
 .readout { width: 100%; border-collapse: collapse; font: 600 11.5px ui-monospace, Menlo, monospace; }
 .readout th, .readout td { border: 1.5px solid var(--line); padding: 4px 3px; text-align: right; white-space: nowrap; }
@@ -155,10 +159,13 @@ button:hover { background: #e2e8f0; }
 
 /* Phone declutter: compact always-visible FCF chip + "Show drawing" toggle.
    Hidden outside the phone breakpoint so desktop/iPad are unchanged. */
-.fcf-chip, .phone-only { display: none; }
+.hud-br, .phone-only { display: none; }
 @media (max-width: 700px), (max-height: 500px) {
   .phone-only { display: flex; }
-  .fcf-chip { display: block; position: absolute; right: 8px; bottom: 8px; z-index: 5; pointer-events: none; }
+  .hud-br { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; position: absolute; right: 8px; bottom: 8px; z-index: 5; pointer-events: none; }
+  .fcf-chip { pointer-events: none; }
+  .drawing-btn { pointer-events: auto; min-height: 40px; min-width: 40px; padding: 0 12px; font: 700 13px system-ui; color: var(--ink); background: #fff; border: 2px solid var(--ink); border-radius: 8px; touch-action: manipulation; }
+  .drawing-btn[aria-pressed="true"] { background: var(--ink); color: #fff; }
   .fcf-chip table.fcf { border-collapse: collapse; background: #fff; font: 700 12px/1 system-ui; color: var(--ink); }
   .fcf-chip table.fcf td { border: 2px solid var(--ink); padding: 3px 5px; text-align: center; }
   .fcf-chip .possym { width: 13px; height: 13px; display: block; }

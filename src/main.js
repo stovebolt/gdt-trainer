@@ -32,6 +32,7 @@ document.getElementById('fcf-chip').innerHTML = `<table class="fcf"><tr><td clas
 // Phone-sized screens (PHONE_QUERY in scene.js) start in the hole close-up;
 // "Reset camera" still returns to the overview. Desktop/iPad start unchanged.
 if (isPhone()) viewer.zoomToHole();
+document.getElementById('drawing-btn').addEventListener('click', () => { state.drawing = !state.drawing; refresh(); });
 const ui = createUI(document.getElementById('panel'), {
   clampOffset,
   onChange: (patch) => setAxis(patch),
@@ -69,6 +70,9 @@ function refresh() {
   last = evaluate();
   viewer.update(state, last);
   viewer.setDrawing(state.drawing);
+  const btn = document.getElementById('drawing-btn');
+  btn.setAttribute('aria-pressed', String(state.drawing));
+  btn.textContent = state.drawing ? 'Hide drawing' : 'Show drawing';
   ui.render(state, last);
 }
 refresh();

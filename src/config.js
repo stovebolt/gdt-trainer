@@ -6,18 +6,20 @@ export const SPEC = Object.freeze({
   plate: Object.freeze({ x: 100, y: 60, z: 10 }), // 100 x 60 x 10
   hole: Object.freeze({
     nominal: 10.1,
-    plusMinus: 0.1, // ⌀10.1 ±0.1 — label only in v1 (no size check, no MMC)
+    plusMinus: 0.1, // ⌀10.1 ±0.1
+    mmc: 10.0, // hole MMC = smallest size
+    lmc: 10.2, // hole LMC = largest size
+    sizeSlider: Object.freeze({ min: 9.95, max: 10.25, step: 0.01, default: 10.1 }),
   }),
   basic: Object.freeze({ fromB: 35, fromC: 30 }), // BASIC dimensions
   truePosition: Object.freeze({ x: 35, y: 30 }),
   position: Object.freeze({
-    tolerance: 0.25, // ⌀ — cylindrical zone diameter, RFS
+    tolerance: 0.25, // ⌀ stated (default; editable in the UI), cylindrical zone
+    modifier: 'RFS', // default material condition; 'MMC' adds bonus
     datums: Object.freeze(['A', 'B', 'C']),
   }),
 });
 
-// Shown next to every verdict: v1 does not check hole size.
-export const SIZE_NOTE = 'Hole size assumed within ⌀10.0–10.2 (size not checked in this demo)';
 
 // Display-only exaggeration of deviations and zone size (see ZONE.md §5).
 export const VIEW = Object.freeze({

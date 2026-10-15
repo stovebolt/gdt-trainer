@@ -1,13 +1,19 @@
 // DOM side panel: numeric controls, presets, the per-endpoint readout, and a
 // 2D top-down "zone inset" (also draggable). No Three.js dependency.
-import { SPEC, VIEW, PRESETS, SIZE_NOTE } from './config.js';
+import { SPEC, VIEW, PRESETS } from './config.js';
 import { fmt, fmtSigned, fmtAgainst, fmtMargin } from './format.js';
+import { fcfHTML, fmtNote, MMC_SYM } from './fcf.js';
 
-const TOL = SPEC.position.tolerance;
-const R = TOL / 2;
+const SIZE_LIMITS = `⌀${SPEC.hole.mmc.toFixed(2)}–${SPEC.hole.lmc.toFixed(2)}`;
+/** Size note shown next to every verdict (same length IN / REJECT, so no layout jump). */
+export const sizeNote = (size) => size.sizeOk
+  ? `Hole size ⌀${fmt(size.actualSize)} ✔ within ${SIZE_LIMITS}`
+  : `Hole size ⌀${fmt(size.actualSize)} ✘ outside ${SIZE_LIMITS}`;
+export const STATUS = { IN: 'IN TOLERANCE', OUT: 'OUT OF TOLERANCE', REJECT_SIZE: 'REJECT: size', INVALID_TOL: 'INVALID: ⌀0 at RFS' };
+const BADGE = { IN: '✔ IN', OUT: '✘ OUT', REJECT_SIZE: '✘ REJECT: size', INVALID_TOL: '✘ INVALID' };
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onResetCamera, onZoomHole, clampOffset }) {
+export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onSize, onModifier, onStated, onResetCamera, onZoomHole, clampOffset }) {
   root.innerHTML = template();
   const $ = (sel) => root.querySelector(sel);
 
@@ -36,6 +42,25 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
   $('#reset-cam').addEventListener('click', onResetCamera);
   $('#zoom-hole').addEventListener('click', onZoomHole);
 
+  // --- hole size, RFS / MMC, stated tolerance --------------------------------
+  const msg = (t) => { $('#mc-msg').textContent = t; };
+  $('#r-size').addEventListener('input', (e) => onSize(Number(e.target.value)));
+  $('#n-size').addEventListener('change', (e) => { const v = Number(e.target.value); if (Number.isFinite(v)) onSize(v); });
+  for (const m of ['RFS', 'MMC']) {
+    $(`#mod-${m.toLowerCase()}`).addEventListener('click', () => {
+      if (onModifier(m) === false) msg('A stated ⌀0 is only valid at MMC (all tolerance from bonus). Set a stated tolerance above 0 to use RFS.');
+      else msg('');
+    });
+  }
+  $('#n-stated').addEventListener('change', (e) => {
+    const v = Number(e.target.value);
+    if (!Number.isFinite(v) || onStated(v) === false) {
+      msg('A stated ⌀0 is not valid at RFS; it is only allowed at MMC.');
+      e.target.value = lastStated;
+    } else msg('');
+  });
+  let lastStated = '';
+
   const inset = createInset($('#inset'), { onChange, clampOffset });
 
   function render(state, res) {
@@ -48,6 +73,27 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#mag-val').textContent = `×${state.magnification}`;
     $('#xray').checked = state.xray;
     $('#drawing').checked = state.drawing;
+    $('#r-size').value = String(state.size);
+    if (document.activeElement !== $('#n-size')) $('#n-size').value = state.size.toFixed(4);
+    lastStated = state.stated.toFixed(4);
+    if (document.activeElement !== $('#n-stated')) $('#n-stated').value = lastStated;
+    for (const m of ['RFS', 'MMC']) $(`#mod-${m.toLowerCase()}`).setAttribute('aria-pressed', String(state.modifier === m));
+    const TOL = res.tolerance; // allowed (stated + bonus)
+    const R = res.radius;
+    const sz = res.size;
+    $('#spec-fcf').innerHTML = fcfHTML(state, 'fcf big');
+    $('#spec-zone').textContent = `${state.modifier} · zone = ⌀${fmt(TOL)} cylinder`;
+    $('#tol-line').innerHTML = state.modifier === 'MMC'
+      ? `stated ⌀${fmt(sz.stated)} + bonus ⌀${fmt(sz.bonus)} = allowed ⌀${fmt(sz.allowed)}`
+      : `stated ⌀${fmt(sz.stated)} = allowed ⌀${fmt(sz.allowed)} <span class="muted">(RFS: no bonus)</span>`;
+    $('#bonus-detail').textContent = state.modifier === 'MMC' ? `bonus = actual ⌀${fmt(sz.actualSize)} − MMC ⌀${fmt(SPEC.hole.mmc)}${sz.sizeOk ? '' : ' (size rejected)'}` : '\u00a0'; // keep the line's height at RFS (no jump)
+    $('#vc-line').textContent = state.modifier === 'MMC' ? `virtual condition ⌀${fmtNote(sz.virtualCondition)}` : '\u00a0';
+    $('#vc-line').style.visibility = state.modifier === 'MMC' ? 'visible' : 'hidden';
+    $('#bonus-detail').style.visibility = state.modifier === 'MMC' ? 'visible' : 'hidden';
+    $('#th-r').textContent = `r vs ${fmt(R)}`;
+    $('#th-d').textContent = `2r vs ⌀${fmt(TOL)}`;
+    $('#rule-note').innerHTML = `mm, offsets from true position. r = √(dx² + dy²). IN only if <b>both</b> endpoints have r ≤ ${fmt(R)} (boundary inclusive). Values shown to 0.0001 mm.`;
+    for (const el of root.querySelectorAll('.size-note')) el.textContent = sizeNote(sz);
 
     for (const end of ['bottom', 'top']) {
       const e = res[end];
@@ -61,17 +107,20 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     }
     const worst = res.top.r >= res.bottom.r ? 'top' : 'bottom';
     const overall = $('#overall');
-    overall.className = `overall ${res.inTolerance ? 'pass' : 'fail'}`;
+    overall.className = `overall ${res.accept ? 'pass' : 'fail'}`;
     const posShown = fmtAgainst(res.deviation, TOL, res.inTolerance);
     $('#pos-value').textContent = `⌀${posShown}`;
     $('#pos-compare').innerHTML = `${res.inTolerance ? '≤' : '>'} ⌀${fmt(TOL)}`;
-    $('#pos-status').textContent = res.inTolerance ? 'IN TOLERANCE' : 'OUT OF TOLERANCE';
+    $('#pos-status').textContent = STATUS[res.verdict];
     $('#pos-detail').textContent = `= 2 × r(${worst}) = 2 × ${fmtAgainst(res[worst].r, R, res.inTolerance)} · margin ${fmtMargin(res.deviation, TOL, res.inTolerance)} mm`;
     $('#mid').textContent = `mid-plane (z=5) offset: dx ${fmtSigned(res.mid.dx)}, dy ${fmtSigned(res.mid.dy)} · tilt ${res.tilt.toFixed(4)}°`;
 
     const badge = document.getElementById('status-badge');
-    badge.className = `status-badge ${res.inTolerance ? 'pass' : 'fail'}`;
-    badge.innerHTML = `${res.inTolerance ? '✔ IN' : '✘ OUT'}<small>position ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmt(TOL)}</small><span class="size-note">${SIZE_NOTE}</span>`;
+    badge.className = `status-badge ${res.accept ? 'pass' : 'fail'}`;
+    const small = res.verdict === 'REJECT_SIZE' ? `hole ⌀${fmt(sz.actualSize)} outside ${SIZE_LIMITS}`
+      : res.verdict === 'INVALID_TOL' ? 'stated ⌀0 is only valid at MMC'
+      : `position ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmt(TOL)}${state.modifier === 'MMC' ? ` ${MMC_SYM}` : ''}`;
+    badge.innerHTML = `${BADGE[res.verdict]}<small>${small}</small><span class="size-note">${sizeNote(sz)}</span>`;
     document.getElementById('mag-badge').textContent = `Zone & deviations drawn ×${state.magnification} (display only)`;
     inset.render(state, res);
   }
@@ -80,11 +129,12 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
 
 // --- Top-down inset: zone circle at TRUE scale relationship ------------------
 function createInset(svg, { onChange, clampOffset }) {
-  const HALF = 0.2; // mm shown from centre to edge
+  const HALF = 0.25; // mm shown from centre to edge (fits the largest MMC zone, ⌀0.45)
+  const R = SPEC.position.tolerance / 2; // initial label placement only
   svg.setAttribute('viewBox', `${-HALF} ${-HALF} ${2 * HALF} ${2 * HALF}`);
   svg.innerHTML = `
     <g transform="scale(1,-1)">
-      <circle class="grid" r="0.05"/><circle class="grid" r="0.1"/><circle class="grid" r="0.15"/>
+      <circle class="grid" r="0.05"/><circle class="grid" r="0.1"/><circle class="grid" r="0.15"/><circle class="grid" r="0.2"/>
       <line class="grid" x1="${-HALF}" y1="0" x2="${HALF}" y2="0"/><line class="grid" x1="0" y1="${-HALF}" x2="0" y2="${HALF}"/>
       <circle class="zone" r="${R}"/>
       <line class="axis" id="i-axis"/>
@@ -92,9 +142,9 @@ function createInset(svg, { onChange, clampOffset }) {
       <circle class="pt" id="i-bottom" r="0.011" data-end="bottom"/>
       <circle class="pt" id="i-top" r="0.011" data-end="top"/>
     </g>
-    <text x="${-R * 0.72 - 0.065}" y="${R * 0.72 + 0.02}" class="t-zone">⌀${TOL} position zone</text>
+    <text x="${-R * 0.72 - 0.065}" y="${R * 0.72 + 0.02}" class="t-zone" id="t-zone">⌀${fmtNote(SPEC.position.tolerance)} position zone</text>
     <text x="${-HALF + 0.008}" y="${-HALF + 0.022}" class="t-small">top view (from +Z)</text>
-    <text x="${-HALF + 0.008}" y="${HALF - 0.008}" class="t-small">grid rings r = 0.0500 / 0.1000 / 0.1500 mm</text>
+    <text x="${-HALF + 0.008}" y="${HALF - 0.008}" class="t-small">grid rings r = 0.0500 / 0.1000 / 0.1500 / 0.2000 mm</text>
     <text id="t-bottom" class="t-pt">B</text><text id="t-top" class="t-pt">T</text>`;
   const q = (id) => svg.querySelector(id);
 
@@ -140,6 +190,11 @@ function createInset(svg, { onChange, clampOffset }) {
     const b = { x: clip(state.bottom.dx), y: clip(state.bottom.dy) };
     const t = { x: clip(state.top.dx), y: clip(state.top.dy) };
     q('.zone').setAttribute('class', `zone ${res.inTolerance ? 'pass' : 'fail'}`);
+    q('.zone').setAttribute('r', res.radius);
+    const tz = q('#t-zone');
+    tz.textContent = `⌀${fmtNote(res.tolerance)} position zone`;
+    tz.setAttribute('x', -res.radius * 0.72 - 0.065);
+    tz.setAttribute('y', res.radius * 0.72 + 0.02);
     Object.entries({ x1: b.x, y1: b.y, x2: t.x, y2: t.y }).forEach(([k, v]) => q('#i-axis').setAttribute(k, v));
     q('#i-axis').setAttribute('class', `axis ${res.inTolerance ? 'pass' : 'fail'}`);
     q('#i-mid').setAttribute('cx', (b.x + t.x) / 2);
@@ -168,14 +223,14 @@ function slider(end, axis) {
 }
 
 function template() {
-  const fcf = `<table class="fcf big"><tr><td class="sym"><svg class="possym" viewBox="-10 -10 20 20" aria-label="position"><circle r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M-9 0H9M0 -9V9" stroke="currentColor" stroke-width="2"/></svg></td><td>⌀${TOL.toFixed(2)}</td>${SPEC.position.datums.map((d) => `<td>${d}</td>`).join('')}</tr></table>`;
+  const S = SPEC.hole.sizeSlider;
   return `
   <header>
     <h1>Position of a hole</h1>
     <div class="spec">
       <div>Hole ⌀${SPEC.hole.nominal} ±${SPEC.hole.plusMinus} THRU at BASIC <span class="basic">${SPEC.basic.fromB}</span> from B, <span class="basic">${SPEC.basic.fromC}</span> from C</div>
-      ${fcf}
-      <div class="muted">Plate ${SPEC.plate.x} × ${SPEC.plate.y} × ${SPEC.plate.z} mm · RFS · zone = ⌀${fmt(TOL)} cylinder ⟂ A at (${SPEC.truePosition.x}, ${SPEC.truePosition.y}), z = 0…${SPEC.plate.z}</div>
+      <div id="spec-fcf"></div>
+      <div class="muted">Plate ${SPEC.plate.x} × ${SPEC.plate.y} × ${SPEC.plate.z} mm · <span id="spec-zone"></span> ⟂ A at (${SPEC.truePosition.x}, ${SPEC.truePosition.y}), z = 0…${SPEC.plate.z}</div>
     </div>
   </header>
 
@@ -183,25 +238,39 @@ function template() {
     <div class="pos-label">Position (reported as a <b>diameter</b> = 2r, not a radius)</div>
     <div class="pos-line"><span id="pos-value"></span> <span id="pos-compare"></span> <span id="pos-status"></span></div>
     <div id="pos-detail" class="muted"></div>
-    <div class="size-note">${SIZE_NOTE}</div>
+    <div id="tol-line" class="tol-line"></div>
+    <div id="bonus-detail" class="muted small"></div>
+    <div id="vc-line" class="vc-line"></div>
+    <div class="size-note"></div>
+  </section>
+
+  <section id="mc" class="mc">
+    <h2>Hole size &amp; material condition</h2>
+    <label class="ctl"><span>Hole ⌀</span><input type="range" id="r-size" min="${S.min}" max="${S.max}" step="${S.step}"/><input type="number" id="n-size" min="${S.min}" max="${S.max}" step="0.01"/></label>
+    <div class="mc-row">
+      <span class="seg" role="group" aria-label="Material condition"><button id="mod-rfs" type="button" aria-pressed="true">RFS</button><button id="mod-mmc" type="button" aria-pressed="false">MMC ${MMC_SYM}</button></span>
+      <label class="stated"><span>Stated ⌀</span><input type="number" id="n-stated" min="0" max="1" step="0.01"/></label>
+    </div>
+    <div id="mc-msg" class="mc-msg" role="status"></div>
+    <div class="muted small">Size limits ${SIZE_LIMITS} (MMC ⌀${SPEC.hole.mmc.toFixed(2)}). Outside them the part is <b>REJECT: size</b>, whatever the axis. At MMC, bonus = actual size − ${SPEC.hole.mmc.toFixed(2)}.</div>
   </section>
 
   <section>
     <h2>Axis endpoints vs zone</h2>
     <table class="readout">
-      <thead><tr><th>Endpoint</th><th>dx</th><th>dy</th><th>r vs ${fmt(R)}</th><th>2r vs ⌀${fmt(TOL)}</th><th></th></tr></thead>
+      <thead><tr><th>Endpoint</th><th>dx</th><th>dy</th><th id="th-r"></th><th id="th-d"></th><th></th></tr></thead>
       <tbody>
         <tr id="row-bottom"><th>Bottom<br><small>z = 0</small></th><td class="dx"></td><td class="dy"></td><td class="r"></td><td class="d"></td><td class="mark"></td></tr>
         <tr id="row-top"><th>Top<br><small>z = 10</small></th><td class="dx"></td><td class="dy"></td><td class="r"></td><td class="d"></td><td class="mark"></td></tr>
       </tbody>
     </table>
-    <div class="muted small">mm, offsets from true position. r = √(dx² + dy²). IN only if <b>both</b> endpoints have r ≤ ${fmt(R)} (boundary inclusive). Values shown to 0.0001 mm.</div>
+    <div id="rule-note" class="muted small"></div>
     <div id="mid" class="muted small"></div>
   </section>
 
   <section class="inset-wrap">
     <svg id="inset" aria-label="Top view of zone and axis endpoints"></svg>
-    <div class="muted small">Drag <b>T</b> (top), <b>B</b> (bottom) or the axis line. Real mm, no exaggeration. View ±0.2000 mm.</div>
+    <div class="muted small">Drag <b>T</b> (top), <b>B</b> (bottom) or the axis line. Real mm, no exaggeration. View ±0.2500 mm.</div>
   </section>
 
   <section>

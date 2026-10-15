@@ -12,12 +12,13 @@ tests in `tests/tolerance.test.js`. The 3D scene only displays that result.
 - **Datum reference frame:** primary **A** = bottom face (z = 0), secondary
   **B** = left edge (x = 0), tertiary **C** = front edge (y = 0). The origin is
   at the A/B/C intersection, X runs from B, Y from C, and **+Z points up out of A**.
-- **Feature:** through hole ⌀10.1 ±0.1. The size is shown as a label only.
-  There is no size check in v1.
+- **Feature:** through hole ⌀10.1 ±0.1 (limits ⌀10.00–10.20). Since the
+  MMC build, the actual size is set with a slider and **checked** (§8).
 - **Location:** **BASIC 35** from B and **BASIC 30** from C, so the
   **true position (TP) = (35, 30)**.
 - **Feature control frame:** `⌖ | ⌀0.25 | A | B | C`, regardless of feature
-  size (RFS). **No MMC and no bonus tolerance in v1.**
+  size (RFS) by default. The MMC build adds an RFS/MMC toggle,
+  `⌖ | ⌀0.25 Ⓜ | A | B | C`, and an editable stated tolerance (§8).
 - **Zone:** a fixed cylinder of diameter **⌀0.25** (radius 0.125). Its axis is
   the TP axis: through (35, 30) and **perpendicular to A**. It runs from
   **z = 0 to z = 10**, the full length (thickness) of the feature.
@@ -30,7 +31,7 @@ tests in `tests/tolerance.test.js`. The 3D scene only displays that result.
 | Axis | the line x = 35, y = 30 (parallel to Z) | basic dimensions from B and C; perpendicular to primary datum A |
 | Diameter | 0.25 | the tolerance value in the FCF |
 | Length | z = 0 … 10 | the zone covers the full length of the feature (plate thickness) |
-| Size or position change with the hole? | no | RFS, so the zone is fixed |
+| Size or position change with the hole? | RFS: no. MMC: the diameter grows with the bonus (§8) | RFS fixes the zone; at MMC the zone diameter is the **allowed** tolerance |
 
 In code, the zone is `{ truePosition: {x:35, y:30}, tolerance: 0.25 }` plus
 the thickness `10` (`src/config.js` → `SPEC`). In the scene it is drawn by
@@ -168,9 +169,9 @@ two crossing points.
 2. The datum features are perfect planes, and the DRF is exactly the
    modelled frame. There is no datum shift and no datum feature simulation.
 3. The zone length equals the feature length (10 mm), with no projected zone.
-4. RFS: the zone size does not depend on the hole size. The hole size is not
-   checked in v1. The UI says so next to every verdict: *"Hole size assumed
-   within ⌀10.0–10.2 (size not checked in this demo)"*.
+4. RFS: the zone size does not depend on the hole size. Since the MMC build
+   the hole size **is** checked (§8), and the note next to every verdict
+   shows it: *"Hole size ⌀10.1000 ✔ within ⌀10.00–10.20"* (or *"✘ outside"*).
 5. The boundary is inclusive (r = 0.125 is IN). There is no measurement
    uncertainty in v1.
 
@@ -193,3 +194,55 @@ The expert signed off on the math in §2–§4 and answered the v1 open question
   against the standard. If that changes, only the wording here and in the UI
   changes. The v1 math (an ideal straight axis given directly) does not
   depend on which envelope defines the axis.
+
+## 8. MMC and bonus tolerance (branch `mmc-bonus`, for Sally to verify)
+
+These are Sally's rules as implemented. The math is pure and lives in
+`src/tolerance.js` (`allowedTolerance`, `evaluatePart`). The tests are in
+`tests/mmc.test.js`. Default inputs: stated ⌀0.25, hole MMC ⌀10.00 (the
+smallest hole), hole LMC ⌀10.20 (the largest).
+
+| # | Rule | Implementation |
+|---|---|---|
+| 1 | A slider sets the actual hole size from ⌀9.95 to ⌀10.25. Outside ⌀10.00–10.20 the verdict is **REJECT: size**, whatever the axis position | `sizeOk = 10.00 ≤ size ≤ 10.20` (inclusive, 1e-9 slack). The verdict checks size **before** position, so a perfect axis is still rejected. The number box accepts 0.0001 mm steps; the slider moves in 0.01 steps |
+| 2 | RFS: allowed = stated (⌀0.25) | `bonus = 0`, `allowed = stated`, at every size |
+| 3 | MMC: bonus = actual − 10.00, allowed = stated + bonus (max ⌀0.45 at ⌀10.20) | `bonus = clamp(size − 10.00, 0, 10.20 − 10.00)`, **floored** to 0.0001 mm so it is never overstated. `allowed = stated + bonus` |
+| 4 | Zone radius = allowed / 2, live. IN/OUT compares the reported position (2r) with allowed | The cylinder, the inset circle, the 3D zone label and every "vs" column use `allowed`. Position = 2·max(r_bottom, r_top) ≤ allowed, which is the same as both endpoints having r ≤ allowed/2 (boundary inclusive) |
+| 5 | Readout: "stated ⌀0.25 + bonus ⌀0.0xx = allowed ⌀0.xxx", with the bonus hidden at RFS | MMC: `stated ⌀0.2500 + bonus ⌀0.1500 = allowed ⌀0.4000`. RFS: `stated ⌀0.2500 = allowed ⌀0.2500 (RFS: no bonus)`. Values have 4 decimals, as everywhere else in the app (see open question a) |
+| 6 | At MMC, a "virtual condition" label | **VC = 10.00 − stated**: ⌀9.75 at the default. It updates when the stated tolerance is edited and **never** changes with hole size. Shown in the panel and under the FCF in the drawing, at MMC only |
+| a | RFS/MMC toggle and an editable stated tolerance (default 0.25) | The MMC math uses the stated value. The Ⓜ symbol (drawn as an SVG, so no missing-glyph risk) appears in the panel FCF, the phone FCF chip and the 3D drawing FCF, at MMC only |
+| b | A stated ⌀0 is valid at MMC (all tolerance from bonus) and invalid at RFS | The math marks ⌀0 at RFS as `INVALID_TOL` (never accepted). The UI **blocks** it: typing 0 at RFS is refused and reverted, and switching to RFS while the stated value is 0 is refused, both with a message |
+
+### Verdict order
+
+1. stated ⌀0 at RFS → **INVALID** (the UI never lets you reach this state)
+2. size outside ⌀10.00–10.20 → **REJECT: size**
+3. position 2r ≤ allowed → **IN TOLERANCE**, otherwise **OUT OF TOLERANCE**
+
+### Worked edges (stated ⌀0.25, all unit-tested)
+
+| Actual hole | Size | RFS allowed | MMC bonus | MMC allowed | VC (MMC) |
+|---|---|---|---|---|---|
+| ⌀9.95 (slider min) | REJECT: size | — | 0 | (0.25) | ⌀9.75 |
+| ⌀9.9999 | REJECT: size | — | 0 | (0.25) | ⌀9.75 |
+| ⌀10.00 (MMC) | OK | 0.25 | 0.00 | **0.25** | ⌀9.75 |
+| ⌀10.15 | OK | 0.25 | 0.15 | **0.40** | ⌀9.75 |
+| ⌀10.20 (LMC) | OK | 0.25 | 0.20 | **0.45** | ⌀9.75 |
+| ⌀10.2001 | REJECT: size | — | (0.20, capped) | (0.45) | ⌀9.75 |
+| ⌀10.25 (slider max) | REJECT: size | — | (0.20, capped) | (0.45) | ⌀9.75 |
+
+Values in brackets are shown for information only; a size reject overrides them.
+More tested cases: the boundaries are inclusive (at ⌀10.20 a 2r of 0.45 is IN
+and 0.4502 is OUT; at ⌀10.00 r = 0.125 is IN). Stated 0.30 gives VC ⌀9.70.
+A stated ⌀0 at MMC with ⌀10.12 allows 0.12. A stated ⌀0 at RFS is INVALID.
+⌀10.12345 gives a bonus of 0.1234 (floored).
+
+### Open questions for Sally
+
+- a. **Decimals:** the readout uses 4 decimals (⌀0.1500), matching the
+  frozen 4-decimal rule. The rule's template reads "⌀0.0xx / ⌀0.xxx". Should
+  it be 3 decimals?
+- b. **Oversize hole at MMC:** the bonus is capped at 0.20 for display. Should
+  a rejected size show no bonus at all?
+- c. **⌀0 at RFS:** it is blocked in the UI rather than shown as a REJECT
+  state. Is that acceptable?

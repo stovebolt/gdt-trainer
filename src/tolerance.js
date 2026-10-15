@@ -96,3 +96,67 @@ function assertFinite(obj) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Hole size, RFS / MMC and bonus tolerance (Sally's rules, see ZONE.md §7)
+// ---------------------------------------------------------------------------
+
+/** Lengths are quantised to 0.0001 mm (the display resolution). */
+const UNITS = 1e4;
+/** Round DOWN to 0.0001 (tiny float noise forgiven), so a bonus is never overstated. */
+const floorUnits = (v) => Math.floor(v * UNITS + 1e-6) / UNITS;
+const roundUnits = (v) => Math.round(v * UNITS) / UNITS;
+
+/**
+ * Size check and allowed position tolerance for an internal feature (hole).
+ *
+ * - Size: the hole is acceptable only if mmc <= actualSize <= lmc (inclusive,
+ *   EPS slack). Otherwise the part is rejected for size, whatever the axis.
+ * - RFS: allowed = stated. A stated ⌀0 is invalid at RFS.
+ * - MMC: bonus = actualSize − mmc (never negative, never more than lmc − mmc),
+ *   allowed = stated + bonus. A stated ⌀0 is valid at MMC (all tolerance
+ *   comes from bonus).
+ * - Virtual condition (hole, MMC) = mmc − stated. It depends only on the
+ *   stated tolerance, never on the actual size.
+ * Bonus is floored to 0.0001 mm (conservative: never overstated).
+ *
+ * @param {object} p
+ * @param {number} p.stated     stated position tolerance, diameter (mm), >= 0
+ * @param {'RFS'|'MMC'} p.modifier
+ * @param {number} p.actualSize actual hole diameter (mm)
+ * @param {number} p.mmc        maximum material size of the hole = its smallest size (mm)
+ * @param {number} p.lmc        least material size = its largest size (mm)
+ */
+export function allowedTolerance({ stated, modifier, actualSize, mmc, lmc }) {
+  assertFinite({ stated, actualSize, mmc, lmc });
+  if (stated < 0) throw new RangeError('stated tolerance must be >= 0');
+  if (lmc < mmc) throw new RangeError('lmc must be >= mmc for a hole');
+  if (modifier !== 'RFS' && modifier !== 'MMC') throw new RangeError(`modifier must be 'RFS' or 'MMC' (got ${modifier})`);
+  const sizeOk = actualSize >= mmc - EPS && actualSize <= lmc + EPS;
+  const statedValid = modifier === 'MMC' || stated > EPS;
+  const bonus = modifier === 'MMC' ? floorUnits(Math.min(Math.max(actualSize - mmc, 0), lmc - mmc)) : 0;
+  const allowed = floorUnits(stated + bonus);
+  return {
+    modifier,
+    stated,
+    actualSize,
+    sizeOk,
+    statedValid,
+    bonus,
+    allowed,
+    virtualCondition: modifier === 'MMC' ? roundUnits(mmc - stated) : null,
+  };
+}
+
+/**
+ * Full verdict: size first, then position against the allowed tolerance.
+ * verdict: 'INVALID_TOL' (⌀0 at RFS) | 'REJECT_SIZE' | 'IN' | 'OUT'.
+ * The position check is evaluatePosition() with tolerance = allowed, i.e. the
+ * reported position 2·max(r) compared with allowed (both endpoints r <= allowed/2).
+ */
+export function evaluatePart({ truePosition, bottom, top, thickness, stated, modifier, actualSize, mmc, lmc }) {
+  const tol = allowedTolerance({ stated, modifier, actualSize, mmc, lmc });
+  const pos = evaluatePosition({ truePosition, bottom, top, tolerance: tol.allowed, thickness });
+  const verdict = !tol.statedValid ? 'INVALID_TOL' : !tol.sizeOk ? 'REJECT_SIZE' : pos.inTolerance ? 'IN' : 'OUT';
+  return { ...pos, size: tol, verdict, accept: verdict === 'IN' };
+}

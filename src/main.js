@@ -1,6 +1,7 @@
 // Wires state -> tolerance math -> 3D scene + UI readout.
 import { SPEC, VIEW, PRESETS } from './config.js';
-import { evaluatePosition } from './tolerance.js';
+import { evaluatePart } from './tolerance.js';
+import { fcfHTML } from './fcf.js';
 import { createViewer, isPhone } from './viewer/scene.js';
 import { attachDrag } from './interaction.js';
 import { createUI } from './ui.js';
@@ -14,21 +15,31 @@ const state = {
   magnification: VIEW.defaultMagnification,
   xray: true,
   drawing: !isPhone(), // phones start decluttered; "Show drawing" brings it back
+  size: SPEC.hole.sizeSlider.default, // actual hole diameter (mm)
+  modifier: SPEC.position.modifier, // 'RFS' | 'MMC'
+  stated: SPEC.position.tolerance, // stated position tolerance ⌀ (mm), editable
 };
+const q4 = (v) => Math.round(v * 1e4) / 1e4;
+const clampSize = (v) => q4(Math.max(SPEC.hole.sizeSlider.min, Math.min(SPEC.hole.sizeSlider.max, v)));
+const clampStated = (v) => q4(Math.max(0, Math.min(1, v)));
 
 export function evaluate(s = state) {
-  return evaluatePosition({
+  return evaluatePart({
     truePosition: TP,
     bottom: { x: TP.x + s.bottom.dx, y: TP.y + s.bottom.dy },
     top: { x: TP.x + s.top.dx, y: TP.y + s.top.dy },
-    tolerance: SPEC.position.tolerance,
     thickness: SPEC.plate.z,
+    stated: s.stated,
+    modifier: s.modifier,
+    actualSize: s.size,
+    mmc: SPEC.hole.mmc,
+    lmc: SPEC.hole.lmc,
   });
 }
 
 const viewer = createViewer(document.getElementById('viewport'));
 // Phone-only compact FCF chip (CSS hides it elsewhere); same content as the drawing's FCF.
-document.getElementById('fcf-chip').innerHTML = `<table class="fcf"><tr><td class="sym"><svg class="possym" viewBox="-10 -10 20 20" aria-label="position"><circle r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M-9 0H9M0 -9V9" stroke="currentColor" stroke-width="2"/></svg></td><td>⌀${SPEC.position.tolerance.toFixed(2)}</td>${SPEC.position.datums.map((d) => `<td>${d}</td>`).join('')}</tr></table>`;
+// (filled in refresh(): it follows the stated tolerance and shows Ⓜ at MMC)
 // Phone-sized screens (PHONE_QUERY in scene.js) start in the hole close-up;
 // "Reset camera" still returns to the overview. Desktop/iPad start unchanged.
 if (isPhone()) viewer.zoomToHole();
@@ -40,6 +51,10 @@ const ui = createUI(document.getElementById('panel'), {
   onMagnification: (m) => { state.magnification = m; refresh(); },
   onXray: (on) => { state.xray = on; refresh(); },
   onDrawing: (on) => { state.drawing = on; refresh(); },
+  onSize: (v) => { state.size = clampSize(v); refresh(); },
+  // A stated ⌀0 is only valid at MMC: block it at RFS (returns false = refused).
+  onModifier: (m) => { if (m === 'RFS' && state.stated <= 0) return false; state.modifier = m; refresh(); return true; },
+  onStated: (v) => { const s = clampStated(v); if (state.modifier === 'RFS' && s <= 0) return false; state.stated = s; refresh(); return true; },
   onResetCamera: () => viewer.resetCamera(),
   onZoomHole: () => viewer.zoomToHole(),
 });
@@ -70,6 +85,7 @@ function refresh() {
   last = evaluate();
   viewer.update(state, last);
   viewer.setDrawing(state.drawing);
+  document.getElementById('fcf-chip').innerHTML = fcfHTML(state);
   const btn = document.getElementById('drawing-btn');
   btn.setAttribute('aria-pressed', String(state.drawing));
   btn.textContent = state.drawing ? 'Hide drawing' : 'Show drawing';
@@ -85,6 +101,9 @@ window.gdt = {
   result: () => last,
   setMagnification: (m) => { state.magnification = m; refresh(); },
   setDrawing: (on) => { state.drawing = !!on; refresh(); },
+  setSize: (v) => { state.size = clampSize(v); refresh(); },
+  setModifier: (m) => { if (m === 'RFS' && state.stated <= 0) return false; state.modifier = m; refresh(); return true; },
+  setStated: (v) => { const s = clampStated(v); if (state.modifier === 'RFS' && s <= 0) return false; state.stated = s; refresh(); return true; },
   _debug: { handles: viewer.handles, camera: viewer.camera, canvas: viewer.domElement, controls: viewer.controls },
   ready: true,
 };

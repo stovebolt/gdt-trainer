@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { SPEC } from '../config.js';
 import { fmt, fmtAgainst } from '../format.js';
+import { fcfHTML, fmtNote } from '../fcf.js';
 import { toVisualXY, visualZoneRadius } from '../exaggeration.js';
 import { COLORS, fatLine, circlePoints, arrowHead, label, disposeObject, setLineResolution } from './primitives.js';
 
@@ -113,7 +114,8 @@ export function createViewer(container) {
     const vt = toVisualXY(TP, state.top.dx, state.top.dy, M);
     for (const child of [...dynamic.children]) disposeObject(child);
     dynamic.add(buildPlate(vb, vt, state.xray));
-    dynamic.add(buildZone(visualZoneRadius(SPEC.position.tolerance, M), result.inTolerance, M));
+    dynamic.add(buildZone(visualZoneRadius(result.tolerance, M), result.inTolerance, M, result.tolerance));
+    fcfLabel.element.innerHTML = fcfDrawingHTML(state, result);
     dynamic.add(buildAxis(vb, vt, result));
     const leader = buildLeader(vt);
     leader.userData.drawing = true;
@@ -297,19 +299,19 @@ function buildStatic() {
   d.add(fatLine([[TP.x - HOLE_R - 2, TP.y, z], [xDimY - 2, TP.y, z]], extOpts));
   d.add(label(`<span class="basic">${SPEC.basic.fromC}</span>`, 'dim', [xDimY, TP.y / 2, z]));
 
-  // Feature control frame + size callout
-  const fcf = `
-    <div class="callout">⌀${SPEC.hole.nominal} ±${SPEC.hole.plusMinus} THRU</div>
-    <table class="fcf"><tr>
-      <td class="sym"><svg class="possym" viewBox="-10 -10 20 20" aria-label="position"><circle r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M-9 0H9M0 -9V9" stroke="currentColor" stroke-width="2"/></svg></td><td>⌀${SPEC.position.tolerance.toFixed(2)}</td>
-      ${SPEC.position.datums.map((d) => `<td>${d}</td>`).join('')}
-    </tr></table>`;
-  d.add(label(fcf, 'fcf-label', FCF_ANCHOR));
+  // Feature control frame + size callout (content set in update(): follows stated tolerance / Ⓜ)
+  fcfLabel = label(fcfDrawingHTML({ stated: SPEC.position.tolerance, modifier: SPEC.position.modifier }), 'fcf-label', FCF_ANCHOR);
+  d.add(fcfLabel);
   g.add(d);
   return g;
 }
 
 const FCF_ANCHOR = [TP.x + 30, TP.y + 20, H];
+let fcfLabel = null;
+function fcfDrawingHTML(state, result) {
+  const vc = state.modifier === 'MMC' ? `<div class="vc-note">virtual condition ⌀${fmtNote(result ? result.size.virtualCondition : SPEC.hole.mmc - state.stated)}</div>` : '';
+  return `<div class="callout">⌀${SPEC.hole.nominal} ±${SPEC.hole.plusMinus} THRU</div>${fcfHTML(state)}${vc}`;
+}
 
 // ---------------------------------------------------------------------------
 // Dynamic part
@@ -387,7 +389,7 @@ function buildPlate(vb, vt, xray) {
 }
 
 /** Translucent cylinder: zone of visual radius R, coaxial with true position, z = 0..H. */
-function buildZone(R, inTol, M) {
+function buildZone(R, inTol, M, allowed) {
   const color = inTol ? COLORS.in : COLORS.out;
   const g = new THREE.Group();
   g.name = 'zone';
@@ -415,7 +417,7 @@ function buildZone(R, inTol, M) {
   const anchor = new THREE.Vector3(TP.x + R, TP.y, H);
   const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
   const factor = M === 1 ? 'shown ×1, true size' : `shown ×${M}`;
-  const zl = label(`position zone ⌀${SPEC.position.tolerance}<br>(${factor}, not a pin)`, `zone-label ${inTol ? 'pass' : 'fail'}`, anchor.toArray());
+  const zl = label(`position zone ⌀${fmtNote(allowed)}<br>(${factor}, not a pin)`, `zone-label ${inTol ? 'pass' : 'fail'}`, anchor.toArray());
   zl.userData.callout = {
     leader,
     near: { anchor, px: CALLOUT_PX.zone, center: [0, 0.5] }, // left edge at leader end

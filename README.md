@@ -11,7 +11,7 @@ flat colors, bold outlines, simple primitives.
 | Datums | A = bottom face (z=0), B = left edge (x=0), C = front edge (y=0); origin at A∩B∩C, +Z up out of A |
 | Hole | ⌀10.1 ±0.1 THRU (size is shown as a label only) |
 | Location | BASIC 35 from B, BASIC 30 from C, so true position = (35, 30) |
-| FCF | ⌖ ⌀0.25 \| A \| B \| C (RFS; no MMC/bonus in v1) |
+| FCF | ⌖ ⌀0.25 \| A \| B \| C (RFS by default; MMC Ⓜ with bonus on branch `mmc-bonus`, see ZONE.md §8) |
 
 How the zone is built and how IN/OUT is decided: see **[ZONE.md](ZONE.md)**.
 
@@ -60,9 +60,15 @@ Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
   Shifted 0.1250 (in, on boundary), Shifted 0.1260 (out), X 0.1000 + Y 0.1000 (out).
 - **Readout.** For each endpoint it shows dx, dy, r vs 0.125, 2r vs ⌀0.25 and
   PASS/FAIL. The overall **position = 2 × (worst endpoint r)** is reported as
-  a **diameter** and compared to ⌀0.2500. Next to the verdict (in the side
-  panel and the top-left badge) is the note *"Hole size assumed within
-  ⌀10.0–10.2 (size not checked in this demo)"*.
+  a **diameter** and compared with the **allowed** tolerance (⌀0.2500 at
+  RFS). Next to the verdict, in the side panel and the top-left badge, is the
+  size note *"Hole size ⌀10.1000 ✔ within ⌀10.00–10.20"*.
+- **Hole size & material condition** (panel): an actual-size slider (⌀9.95–10.25)
+  with a number box, an RFS / MMC toggle and the editable stated tolerance.
+  A size outside ⌀10.00–10.20 gives **REJECT: size**. At MMC the readout
+  shows *stated + bonus = allowed*, the zone grows live, Ⓜ appears in every
+  FCF, and *virtual condition ⌀9.75* (10.00 − stated) is shown. A stated ⌀0
+  is allowed only at MMC. All rules: ZONE.md §8.
 - **4 decimals everywhere** a measured or limit value appears (0.0001 mm).
   Values compared against a limit are rounded *toward their verdict*
   (`src/format.js`), so the display can never contradict PASS/FAIL. For
@@ -164,8 +170,8 @@ display its result.
 - The hole is modelled as an ideal cylinder with a straight axis. There is no
   form error, no size variation, no actual-mating-envelope fitting (see
   ZONE.md, open questions).
-- Hole size ⌀10.1 ±0.1 is a label only. There is no size check and no MMC
-  bonus (out of scope for v1).
+- The hole size is a single actual diameter (an ideal cylinder). There is
+  no local-size or form variation.
 - If the top and bottom endpoints coincide in the inset, grabbing that spot
   moves **T** (top). Use the 3D **slide** handle or the sliders to shift both.
 - A 3D drag happens in the horizontal plane through the grabbed handle. When

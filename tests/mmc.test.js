@@ -31,9 +31,24 @@ test('slider ends 9.95 and 10.25 are REJECT: size, whatever the axis', () => {
     assert.equal(part(s, m, 0.3).verdict, 'REJECT_SIZE', `${s} ${m} far out`);
     assert.equal(part(s, m, 0).accept, false);
   }
-  // bonus is capped at lmc - mmc even for an oversize hole (zone never grows past 0.45)
-  assert.equal(tol(10.25).allowed, 0.45);
-  assert.equal(tol(9.95).bonus, 0);
+});
+
+test('REJECT: size -> bonus n/a (null), allowed falls back to stated, verdict still REJECT', () => {
+  for (const s of [9.95, 9.9999, 10.2001, 10.25]) {
+    const t = tol(s, 'MMC');
+    assert.equal(t.bonus, null, String(s));
+    assert.equal(t.allowed, 0.25, String(s));
+    assert.equal(part(s, 'MMC', 0).verdict, 'REJECT_SIZE');
+  }
+  assert.equal(tol(10.25, 'RFS').bonus, 0); // RFS never has a bonus
+  assert.equal(tol(10.2, 'MMC').bonus, 0.2); // in-limit sizes keep their bonus
+});
+
+test('REJECT: size keeps the position number for information', () => {
+  const r = part(10.22, 'MMC', 0.13);
+  assert.equal(r.verdict, 'REJECT_SIZE');
+  assert.ok(Math.abs(r.deviation - 0.26) < 1e-12);
+  assert.equal(r.accept, false);
 });
 
 test('reject boundaries: 10.00 and 10.20 accepted (inclusive), 9.9999 / 10.2001 rejected, 1e-9 slack', () => {

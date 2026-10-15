@@ -101,7 +101,7 @@ function assertFinite(obj) {
 // Hole size, RFS / MMC and bonus tolerance (Sally's rules, see ZONE.md §7)
 // ---------------------------------------------------------------------------
 
-/** Lengths are quantised to 0.0001 mm (the display resolution). */
+/** Internal math resolution 0.0001 mm (finer than the 0.001 mm metric display). */
 const UNITS = 1e4;
 /** Round DOWN to 0.0001 (tiny float noise forgiven), so a bonus is never overstated. */
 const floorUnits = (v) => Math.floor(v * UNITS + 1e-6) / UNITS;
@@ -119,6 +119,8 @@ const roundUnits = (v) => Math.round(v * UNITS) / UNITS;
  * - Virtual condition (hole, MMC) = mmc − stated. It depends only on the
  *   stated tolerance, never on the actual size.
  * Bonus is floored to 0.0001 mm (conservative: never overstated).
+ * On a size reject the bonus is not applicable: bonus = null and
+ * allowed = stated (shown for information only; the verdict is REJECT: size).
  *
  * @param {object} p
  * @param {number} p.stated     stated position tolerance, diameter (mm), >= 0
@@ -134,8 +136,8 @@ export function allowedTolerance({ stated, modifier, actualSize, mmc, lmc }) {
   if (modifier !== 'RFS' && modifier !== 'MMC') throw new RangeError(`modifier must be 'RFS' or 'MMC' (got ${modifier})`);
   const sizeOk = actualSize >= mmc - EPS && actualSize <= lmc + EPS;
   const statedValid = modifier === 'MMC' || stated > EPS;
-  const bonus = modifier === 'MMC' ? floorUnits(Math.min(Math.max(actualSize - mmc, 0), lmc - mmc)) : 0;
-  const allowed = floorUnits(stated + bonus);
+  const bonus = modifier !== 'MMC' ? 0 : sizeOk ? floorUnits(Math.min(Math.max(actualSize - mmc, 0), lmc - mmc)) : null;
+  const allowed = floorUnits(stated + (bonus ?? 0));
   return {
     modifier,
     stated,

@@ -40,8 +40,8 @@ for (const s of shots) {
   console.log(`${ok ? 'OK  ' : 'FAIL'} ${s.file}: in=${r.inTolerance} position=${r.pos} bottom r=${r.b.r.toFixed(4)} top r=${r.t.r.toFixed(4)} badge="${r.badge.replace(/\n/g, ' | ')}"`);
 }
 
-// Display/verdict consistency at 4 decimals, plus the size note.
-for (const [dx, expectR, file] of [[0.1251, '0.1251', 'boundary_0.1251.png'], [0.12503, '0.1251', null], [0.125, '0.1250', null]]) {
+// Display/verdict consistency (metric, ≤ 3 decimals, measured values round up), plus the size note.
+for (const [dx, expectR, file] of [[0.1251, '0.126 > 0.125', 'boundary_0.1251.png'], [0.12503, '0.126 > 0.125', null], [0.125, '0.125 ≤ 0.125', null]]) {
   await page.evaluate((v) => window.gdt.setAxis({ bottom: { dx: v, dy: 0 }, top: { dx: v, dy: 0 } }), dx);
   await page.waitForTimeout(250);
   const ui = await page.evaluate(() => ({
@@ -49,7 +49,7 @@ for (const [dx, expectR, file] of [[0.1251, '0.1251', 'boundary_0.1251.png'], [0
     mark: document.querySelector('#row-top .mark').innerText,
     pos: document.getElementById('pos-value').innerText,
     badge: document.getElementById('status-badge').innerText,
-    notes: [...document.querySelectorAll('.size-note')].filter((n) => n.offsetParent && n.innerText.includes('⌀10.00–10.20')).length,
+    notes: [...document.querySelectorAll('.size-note')].filter((n) => n.offsetParent && n.innerText.includes('⌀10–10.2')).length,
     handle: [...document.querySelectorAll('.handle-label')].map((n) => n.innerText).join(' | '),
   }));
   const expectPass = dx <= 0.125;
@@ -136,6 +136,10 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
     const t = (id) => document.getElementById(id).innerText.replace(/\s+/g, ' ').trim();
     return { verdict: r.verdict, allowed: r.tolerance, radius: r.radius, status: t('pos-status'), tol: t('tol-line'), vcVis: getComputedStyle(document.getElementById('vc-line')).visibility, vc: t('vc-line'),
       badge: document.getElementById('status-badge').innerText.split('\n')[0], zone: document.querySelector('.zone-label')?.innerText.replace(/\s+/g, ' '),
+      zoneClass: document.querySelector('.zone-label')?.className, axisClass: document.querySelector('.axis-name-label')?.className,
+      handleColors: ['top', 'bottom'].map((k) => '#' + window.gdt._debug.handles[k].material.color.getHexString()),
+      handleText: [...document.querySelectorAll('.handle-label')].map((n) => n.innerText).join(' | '),
+      marks: [...document.querySelectorAll('.readout .mark')].map((n) => n.innerText).join('/'), posValue: t('pos-value'), insetZone: document.querySelector('#inset .zone')?.getAttribute('class'),
       mmcSym: { panel: !!document.querySelector('#spec-fcf .mmcsym'), drawing: !!document.querySelector('.fcf-label .mmcsym'), vcNote: document.querySelector('.fcf-label .vc-note')?.innerText ?? '' }, msg: t('mc-msg') };
   });
   const ck = (ok, label, d) => { failed ||= !ok; console.log(`${ok ? 'OK  ' : 'FAIL'} ${label} — ${JSON.stringify(d)}`); };
@@ -143,37 +147,42 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   await page.click('#mod-rfs');
   await setNum('#n-size', 10.15);
   let d = await read();
-  ck(d.verdict === 'OUT' && d.allowed === 0.25 && d.tol === 'stated ⌀0.2500 = allowed ⌀0.2500 (RFS: no bonus)' && d.vcVis === 'hidden' && !d.mmcSym.panel && !d.mmcSym.drawing, 'RFS ⌀10.15: allowed stays ⌀0.25, no bonus line/VC/Ⓜ, 2r 0.26 OUT', d);
+  ck(d.verdict === 'OUT' && d.allowed === 0.25 && d.tol === 'stated ⌀0.25 = allowed ⌀0.25 (RFS: no bonus)' && d.vcVis === 'hidden' && !d.mmcSym.panel && !d.mmcSym.drawing, 'RFS ⌀10.15: allowed stays ⌀0.25, no bonus line/VC/Ⓜ, 2r 0.26 OUT', d);
   await page.screenshot({ path: 'screenshots/mmc_rfs.png' });
   await page.click('#mod-mmc');
   d = await read();
-  ck(d.verdict === 'IN' && d.allowed === 0.4 && d.radius === 0.2 && d.tol === 'stated ⌀0.2500 + bonus ⌀0.1500 = allowed ⌀0.4000' && d.vcVis === 'visible' && d.vc === 'virtual condition ⌀9.75' && d.mmcSym.panel && d.mmcSym.drawing && d.zone.includes('⌀0.40') && d.mmcSym.vcNote === 'virtual condition ⌀9.75', 'MMC ⌀10.15: bonus 0.15, allowed 0.40, zone ⌀0.40, Ⓜ in FCFs, VC ⌀9.75, IN', d);
+  ck(d.verdict === 'IN' && d.allowed === 0.4 && d.radius === 0.2 && d.tol === 'stated ⌀0.25 + bonus ⌀0.15 = allowed ⌀0.4' && d.vcVis === 'visible' && d.vc === 'virtual condition ⌀9.75' && d.mmcSym.panel && d.mmcSym.drawing && d.zone.includes('⌀0.4 ') && d.mmcSym.vcNote === 'virtual condition ⌀9.75', 'MMC ⌀10.15: bonus 0.15, allowed 0.4, zone ⌀0.4, Ⓜ in FCFs, VC ⌀9.75, IN', d);
   await page.screenshot({ path: 'screenshots/mmc_10.15.png' });
   for (const [sz, want] of [[10.0, 0.25], [10.2, 0.45], [9.99, 'REJECT_SIZE'], [10.21, 'REJECT_SIZE'], [9.95, 'REJECT_SIZE'], [10.25, 'REJECT_SIZE']]) {
     await setNum('#n-size', sz);
     d = await read();
     const ok = want === 'REJECT_SIZE' ? d.verdict === 'REJECT_SIZE' && d.status === 'REJECT: size' && d.badge.includes('REJECT: size') : d.allowed === want && d.verdict !== 'REJECT_SIZE';
     ck(ok, `MMC size ⌀${sz} -> ${want}`, { verdict: d.verdict, allowed: d.allowed, vc: d.vc });
-    if (sz === 9.99) { await page.click('button[data-preset="centered"]'); d = await read(); ck(d.verdict === 'REJECT_SIZE', 'REJECT: size even with a perfect axis', { verdict: d.verdict }); await page.screenshot({ path: 'screenshots/mmc_reject_size.png' }); await page.click('button[data-preset="tilt-out"]'); }
+    if (sz === 9.99) { await page.click('button[data-preset="centered"]'); d = await read(); ck(d.verdict === 'REJECT_SIZE', 'REJECT: size even with a perfect axis', { verdict: d.verdict });
+      await page.click('button[data-preset="tilt-out"]'); d = await read();
+      const gray = '#64748b';
+      ck(d.tol.includes('bonus n/a') && !/bonus ⌀/.test(d.tol) && !/bonus ⌀|bonus = /.test(await page.locator('#bonus-detail').innerText()), 'REJECT: size -> readout "bonus n/a", no bonus amount', { tol: d.tol });
+      ck(d.zoneClass.includes(' na') && d.axisClass.includes(' na') && d.handleColors.every((c) => c === gray) && d.insetZone.includes('na') && d.marks === 'n/a/n/a' && !/[✔✘]/.test(d.handleText), 'REJECT: size -> zone, axis, handles, inset, rows neutral gray (no ✔/✘)', { zone: d.zoneClass, handles: d.handleColors, marks: d.marks, handleText: d.handleText });
+      ck(d.posValue === '⌀0.26', 'REJECT: size keeps the position number for information', { posValue: d.posValue }); await page.screenshot({ path: 'screenshots/mmc_reject_size.png' }); await page.click('button[data-preset="tilt-out"]'); }
     if (d.vc !== 'virtual condition ⌀9.75') ck(false, 'VC never changes with size', d);
   }
   await setNum('#n-size', 10.15);
   await setNum('#n-stated', 0.3);
   d = await read();
-  ck(d.vc === 'virtual condition ⌀9.70' || d.vc === 'virtual condition ⌀9.7', 'VC follows stated (0.30 -> ⌀9.70)', d.vc);
+  ck(d.vc === 'virtual condition ⌀9.7', 'VC follows stated (0.3 -> ⌀9.7)', d.vc);
   await setNum('#n-stated', 0);
   d = await read();
-  ck(d.allowed === 0.15 && d.tol === 'stated ⌀0.0000 + bonus ⌀0.1500 = allowed ⌀0.1500', 'stated ⌀0 valid at MMC (all from bonus)', d.tol);
+  ck(d.allowed === 0.15 && d.tol === 'stated ⌀0 + bonus ⌀0.15 = allowed ⌀0.15', 'stated ⌀0 valid at MMC (all from bonus)', d.tol);
   await page.click('#mod-rfs');
   d = await read();
   const st = await page.evaluate(() => window.gdt.state.modifier);
-  ck(st === 'MMC' && d.msg.includes('only valid at MMC'), 'switching to RFS with stated ⌀0 is blocked', { modifier: st, msg: d.msg });
+  ck(st === 'MMC' && d.msg === '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.', 'switching to RFS with stated ⌀0 is blocked', { modifier: st, msg: d.msg });
   await setNum('#n-stated', 0.25);
   await page.click('#mod-rfs');
   await setNum('#n-stated', 0);
   d = await read();
   const st2 = await page.evaluate(() => window.gdt.state.stated);
-  ck(st2 === 0.25 && d.msg.includes('not valid at RFS') && (await page.locator('#n-stated').inputValue()) === '0.2500', 'typing ⌀0 at RFS is refused (reverted)', { stated: st2, msg: d.msg });
+  ck(st2 === 0.25 && d.msg === '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.' && (await page.locator('#n-stated').inputValue()) === '0.25', 'typing ⌀0 at RFS is refused (reverted)', { stated: st2, msg: d.msg });
   await setNum('#n-size', 10.1);
 }
 

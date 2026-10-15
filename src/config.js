@@ -33,9 +33,9 @@ export const VIEW = Object.freeze({
 // boundary cases mirror the expert's required test cases.
 export const PRESETS = Object.freeze([
   { id: 'centered', label: 'Centered (in)', bottom: { dx: 0, dy: 0 }, top: { dx: 0, dy: 0 } },
-  { id: 'tilt-in', label: 'Tilted ±0.1000 (in)', bottom: { dx: -0.1, dy: 0 }, top: { dx: 0.1, dy: 0 } },
-  { id: 'tilt-out', label: 'Tilted ±0.1300 (out)', bottom: { dx: -0.13, dy: 0 }, top: { dx: 0.13, dy: 0 } },
-  { id: 'edge-in', label: 'Shifted 0.1250 (in, on boundary)', bottom: { dx: 0.125, dy: 0 }, top: { dx: 0.125, dy: 0 } },
-  { id: 'edge-out', label: 'Shifted 0.1260 (out)', bottom: { dx: 0.126, dy: 0 }, top: { dx: 0.126, dy: 0 } },
-  { id: 'diag-out', label: 'X 0.1000 + Y 0.1000 (out)', bottom: { dx: 0.1, dy: 0.1 }, top: { dx: 0.1, dy: 0.1 } },
+  { id: 'tilt-in', label: 'Tilted ±0.1 (in)', bottom: { dx: -0.1, dy: 0 }, top: { dx: 0.1, dy: 0 } },
+  { id: 'tilt-out', label: 'Tilted ±0.13 (out)', bottom: { dx: -0.13, dy: 0 }, top: { dx: 0.13, dy: 0 } },
+  { id: 'edge-in', label: 'Shifted 0.125 (in, on boundary)', bottom: { dx: 0.125, dy: 0 }, top: { dx: 0.125, dy: 0 } },
+  { id: 'edge-out', label: 'Shifted 0.126 (out)', bottom: { dx: 0.126, dy: 0 }, top: { dx: 0.126, dy: 0 } },
+  { id: 'diag-out', label: 'X 0.1 + Y 0.1 (out)', bottom: { dx: 0.1, dy: 0.1 }, top: { dx: 0.1, dy: 0.1 } },
 ]);

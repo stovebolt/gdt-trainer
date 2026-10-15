@@ -7,7 +7,7 @@ import { attachDrag } from './interaction.js';
 import { createUI } from './ui.js';
 
 const TP = SPEC.truePosition;
-const clampOffset = (v) => Math.max(-VIEW.maxDeviation, Math.min(VIEW.maxDeviation, Math.round(v * 1e4) / 1e4));
+const clampOffset = (v) => Math.max(-VIEW.maxDeviation, Math.min(VIEW.maxDeviation, Math.round(v * 1e3) / 1e3));
 
 const state = {
   bottom: { dx: 0, dy: 0 }, // axis crossing at z = 0, offset from true position (mm)
@@ -19,9 +19,9 @@ const state = {
   modifier: SPEC.position.modifier, // 'RFS' | 'MMC'
   stated: SPEC.position.tolerance, // stated position tolerance ⌀ (mm), editable
 };
-const q4 = (v) => Math.round(v * 1e4) / 1e4;
-const clampSize = (v) => q4(Math.max(SPEC.hole.sizeSlider.min, Math.min(SPEC.hole.sizeSlider.max, v)));
-const clampStated = (v) => q4(Math.max(0, Math.min(1, v)));
+const q3 = (v) => Math.round(v * 1e3) / 1e3; // UI inputs in 0.001 mm (metric display)
+const clampSize = (v) => q3(Math.max(SPEC.hole.sizeSlider.min, Math.min(SPEC.hole.sizeSlider.max, v)));
+const clampStated = (v) => q3(Math.max(0, Math.min(1, v)));
 
 export function evaluate(s = state) {
   return evaluatePart({

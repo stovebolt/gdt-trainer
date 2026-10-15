@@ -148,13 +148,15 @@ for (const name of DEVICES) {
       return { modifier: window.gdt.state.modifier, size: window.gdt.state.size, verdict: res.verdict, allowed: res.tolerance, chipMMC: !!document.querySelector('#fcf-chip .mmcsym'), zone: document.querySelector('.zone-label')?.innerText.replace(/\s+/g, ' '), issues };
     });
     check('MMC: RFS/MMC + size controls work by touch (MMC button >= 40px)', m.modifier === 'MMC' && m.size === 10.15 && mmcBB.height >= 40, `modifier ${m.modifier}, size ${m.size}, MMC button ${Math.round(mmcBB.width)}x${Math.round(mmcBB.height)}`);
-    check('MMC ⌀10.15: allowed 0.40, zone label ⌀0.40, chip shows Ⓜ, tilt-out IN', m.allowed === 0.4 && m.verdict === 'IN' && m.chipMMC && /⌀0\.40/.test(m.zone), `${m.verdict} allowed ${m.allowed} zone "${m.zone}" chipⓂ ${m.chipMMC}`);
+    check('MMC ⌀10.15: allowed 0.4, zone label ⌀0.4, chip shows Ⓜ, tilt-out IN', m.allowed === 0.4 && m.verdict === 'IN' && m.chipMMC && /⌀0\.4 /.test(m.zone), `${m.verdict} allowed ${m.allowed} zone "${m.zone}" chipⓂ ${m.chipMMC}`);
     check('MMC ⌀10.15: 3D labels/handles/badges/HUD in view, nothing overlaps', m.issues.length === 0, m.issues.join(', '));
     await page.screenshot({ path: `${OUT}/${slug(name)}-mmc-10.15-${TAG}.png` });
     await page.evaluate(() => window.gdt.setSize(10.22));
     await page.waitForTimeout(500);
-    const rj = await page.evaluate(() => ({ verdict: window.gdt.result().verdict, badge: document.getElementById('status-badge').innerText.split('\n')[0], status: document.getElementById('pos-status').innerText }));
-    check('REJECT: size shown on badge and panel', rj.verdict === 'REJECT_SIZE' && rj.badge.includes('REJECT: size') && rj.status === 'REJECT: size', JSON.stringify(rj));
+    const rj = await page.evaluate(() => ({ verdict: window.gdt.result().verdict, badge: document.getElementById('status-badge').innerText.split('\n')[0], status: document.getElementById('pos-status').innerText,
+      tol: document.getElementById('tol-line').innerText, pos: document.getElementById('pos-value').innerText,
+      gray: ['top', 'bottom'].every((k) => window.gdt._debug.handles[k].material.color.getHexString() === '64748b') && document.querySelector('.zone-label').classList.contains('na') && document.querySelector('.axis-name-label').classList.contains('na') }));
+    check('REJECT: size shown on badge and panel; bonus n/a; zone/axis/handles neutral gray; position kept', rj.verdict === 'REJECT_SIZE' && rj.badge.includes('REJECT: size') && rj.status === 'REJECT: size' && rj.tol.includes('bonus n/a') && !/bonus ⌀/.test(rj.tol) && rj.gray && /^⌀\d/.test(rj.pos), JSON.stringify(rj));
     await page.screenshot({ path: `${OUT}/${slug(name)}-mmc-reject-${TAG}.png` });
     await page.evaluate(() => { window.gdt.setSize(10.1); window.gdt.setModifier('RFS'); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
     await page.waitForTimeout(400);

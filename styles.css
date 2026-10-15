@@ -188,3 +188,13 @@ button:hover { background: #e2e8f0; }
 .mc-msg { color: var(--out); font-weight: 700; font-size: 13px; min-height: 1em; }
 .mc-msg:empty { display: none; }
 .status-badge .mmcsym { width: 1em; height: 1em; }
+
+/* REJECT: size -> position not judged: neutral gray (Sally) */
+.zone-label.na, .axis-name-label.na { color: #334155; border-color: #64748b; }
+.readout tr.na { background: #f1f5f9; } .readout tr.na .mark { color: #475569; }
+#inset .zone.na { fill: #64748b; stroke: #64748b; } #inset .axis.na { stroke: #64748b; } #inset .pt.na { fill: #64748b; }
+/* Metric display: numbers vary in length (⌀0.25 vs ⌀0.251), so reserve the
+   widest form, same trick as #pos-status: the line never re-wraps. */
+#pos-value, #pos-compare { display: inline-block; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#pos-value::after { content: '⌀0.000'; display: block; height: 0; overflow: hidden; visibility: hidden; }
+#pos-compare::after { content: '> ⌀0.000'; display: block; height: 0; overflow: hidden; visibility: hidden; }

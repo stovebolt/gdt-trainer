@@ -1,12 +1,10 @@
 // Feature control frame markup (panel, phone chip, 3D drawing). Pure strings, no DOM.
 import { SPEC } from './config.js';
 
-/** Drawing-style number: 4 decimals with trailing zeros trimmed, at least 2 (0.25, 0.4, 9.8766 -> "0.25", "0.40", "9.8766"). */
-export function fmtNote(v) {
-  let s = Math.abs(v).toFixed(4);
-  while (s.endsWith('0') && s.split('.')[1].length > 2) s = s.slice(0, -1);
-  return s;
-}
+import { fmt } from './format.js';
+
+/** Drawing-style number: metric, at most 3 decimals, trailing zeros dropped (0.25, 0.4, 9.75). */
+export const fmtNote = fmt;
 
 const POS_SYM = '<svg class="possym" viewBox="-10 -10 20 20" aria-label="position"><circle r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M-9 0H9M0 -9V9" stroke="currentColor" stroke-width="2"/></svg>';
 // Circled M drawn as SVG (no font dependency for the Ⓜ glyph).

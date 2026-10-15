@@ -16,7 +16,7 @@ const state = {
   xray: true,
   drawing: !isPhone(), // phones start decluttered; "Show drawing" brings it back
   size: SPEC.hole.sizeSlider.default, // actual hole diameter (mm)
-  modifier: SPEC.position.modifier, // 'RFS' | 'MMC'
+  modifier: SPEC.position.modifier, // 'RFS' | 'MMC' | 'LMC'
   stated: SPEC.position.tolerance, // stated position tolerance ⌀ (mm), editable
 };
 const q3 = (v) => Math.round(v * 1e3) / 1e3; // UI inputs in 0.001 mm (metric display)

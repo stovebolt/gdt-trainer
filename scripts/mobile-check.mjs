@@ -158,6 +158,16 @@ for (const name of DEVICES) {
       gray: ['top', 'bottom'].every((k) => window.gdt._debug.handles[k].material.color.getHexString() === '64748b') && document.querySelector('.zone-label').classList.contains('na') && document.querySelector('.axis-name-label').classList.contains('na') }));
     check('REJECT: size shown on badge and panel; bonus n/a; zone/axis/handles neutral gray; position kept', rj.verdict === 'REJECT_SIZE' && rj.badge.includes('REJECT: size') && rj.status === 'REJECT: size' && rj.tol.includes('bonus n/a') && !/bonus ⌀/.test(rj.tol) && rj.gray && /^⌀\d/.test(rj.pos), JSON.stringify(rj));
     await page.screenshot({ path: `${OUT}/${slug(name)}-mmc-reject-${TAG}.png` });
+    await page.evaluate(() => window.gdt.setSize(10.1));
+    const segBB = { rfs: await tapEl('#mod-rfs'), mmc: await tapEl('#mod-mmc'), lmc: await tapEl('#mod-lmc') };
+    await page.locator('#n-size').fill('10.05'); await page.locator('#n-size').press('Enter'); await page.locator('#n-size').blur();
+    await page.evaluate(() => { window.gdt.applyPreset('tilt-out'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    await page.waitForTimeout(600);
+    const lm = await page.evaluate(() => ({ modifier: window.gdt.state.modifier, allowed: window.gdt.result().tolerance, verdict: window.gdt.result().verdict, chipL: !!document.querySelector('#fcf-chip .mmcsym[aria-label="LMC"]'), vc: document.getElementById('vc-line').innerText }));
+    const segOk = Object.values(segBB).every((b) => b.height >= 40 && b.width >= 40);
+    check('RFS | MMC | LMC segments each >= 40px and work by touch', segOk && lm.modifier === 'LMC', Object.entries(segBB).map(([k, b]) => `${k} ${Math.round(b.width)}x${Math.round(b.height)}`).join(', ') + ` → ${lm.modifier}`);
+    check('LMC ⌀10.05: allowed 0.4, chip shows Ⓛ, LMC VC ⌀10.45, tilt-out IN', lm.allowed === 0.4 && lm.verdict === 'IN' && lm.chipL && lm.vc === 'LMC virtual condition ⌀10.45', JSON.stringify(lm));
+    await page.screenshot({ path: `${OUT}/${slug(name)}-lmc-10.05-${TAG}.png` });
     await page.evaluate(() => { window.gdt.setSize(10.1); window.gdt.setModifier('RFS'); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
     await page.waitForTimeout(400);
   }

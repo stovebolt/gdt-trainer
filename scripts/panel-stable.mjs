@@ -18,6 +18,8 @@ for (const font of ['', 'DejaVu Sans, Verdana, sans-serif']) for (const width of
   const groups = hasMMC
     ? { RFS: [['in', 'RFS', 10.1, 0.1249], ['out', 'RFS', 10.1, 0.1251], ['reject', 'RFS', 10.21, 0], ['reject-lo', 'RFS', 9.99, 0.2]], MMC: [['in', 'MMC', 10.15, 0.1999], ['out', 'MMC', 10.15, 0.2001], ['reject', 'MMC', 10.21, 0], ['in-max', 'MMC', 10.2, 0.225]] }
     : { RFS: [['in', 'RFS', 0, 0.1249], ['out', 'RFS', 0, 0.1251]] };
+  if (hasMMC) groups.LMC = [['in', 'LMC', 10.05, 0.1], ['out', 'LMC', 10.2, 0.13], ['reject', 'LMC', 10.22, 0.13], ['in-max', 'LMC', 10.0, 0.13]];
+  if (hasMMC) groups.MMCvsLMC = [['mmc', 'MMC', 10.1, 0.1], ['lmc', 'LMC', 10.1, 0.1], ['rfs', 'RFS', 10.1, 0.1]];
   if (hasMMC) groups.RFSvsMMC = [['rfs', 'RFS', 10.1, 0.1], ['mmc', 'MMC', 10.1, 0.1], ['rfs-out', 'RFS', 10.15, 0.13], ['mmc-in', 'MMC', 10.15, 0.13]];
   for (const [g, states] of Object.entries(groups)) {
     const res = {};

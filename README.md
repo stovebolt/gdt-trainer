@@ -64,7 +64,7 @@ Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
   RFS). Next to the verdict, in the side panel and the top-left badge, is the
   size note *"Hole size ⌀10.1 ✔ within ⌀10–10.2"*.
 - **Hole size & material condition** (panel): an actual-size slider (⌀9.95–10.25)
-  with a number box, an RFS / MMC toggle and the editable stated tolerance.
+  with a number box, an RFS | MMC | LMC segmented switch (LMC: bonus = 10.20 − size, VC = 10.20 + stated, see ZONE.md §9) and the editable stated tolerance.
   A size outside ⌀10–10.2 gives **REJECT: size**. The readout then shows
   *bonus n/a*, and the zone, axis and handles turn neutral gray, with the
   position number kept for information. At MMC the readout

@@ -2,7 +2,7 @@
 // 2D top-down "zone inset" (also draggable). No Three.js dependency.
 import { SPEC, VIEW, PRESETS } from './config.js';
 import { fmt, fmtLimit, fmtUp, fmtSigned, fmtAgainst, fmtMargin } from './format.js';
-import { fcfHTML, fmtNote, MMC_SYM } from './fcf.js';
+import { fcfHTML, fmtNote, MMC_SYM, LMC_SYM, modSym } from './fcf.js';
 
 const SIZE_LIMITS = `⌀${fmt(SPEC.hole.mmc)}–${fmt(SPEC.hole.lmc)}`;
 /** Size note shown next to every verdict (same length IN / REJECT, so no layout jump). */
@@ -11,6 +11,8 @@ export const sizeNote = (size) => size.sizeOk
   : `Hole size ⌀${fmt(size.actualSize)} ✘ outside ${SIZE_LIMITS}`;
 export const STATUS = { IN: 'IN TOLERANCE', OUT: 'OUT OF TOLERANCE', REJECT_SIZE: 'REJECT: size', INVALID_TOL: 'INVALID: ⌀0 at RFS' };
 /** Shown when a stated ⌀0 is refused at RFS (Sally). */
+/** Teaching line shown (small) at MMC and LMC. */
+export const TEACH = 'MMC protects assembly, LMC protects material.';
 export const ZERO_REASON = '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.';
 const BADGE = { IN: '✔ IN', OUT: '✘ OUT', REJECT_SIZE: '✘ REJECT: size', INVALID_TOL: '✘ INVALID' };
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -48,7 +50,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
   const msg = (t) => { $('#mc-msg').textContent = t; };
   $('#r-size').addEventListener('input', (e) => onSize(Number(e.target.value)));
   $('#n-size').addEventListener('change', (e) => { const v = Number(e.target.value); if (Number.isFinite(v)) onSize(v); });
-  for (const m of ['RFS', 'MMC']) {
+  for (const m of ['RFS', 'MMC', 'LMC']) {
     $(`#mod-${m.toLowerCase()}`).addEventListener('click', () => {
       if (onModifier(m) === false) msg(ZERO_REASON);
       else msg('');
@@ -79,22 +81,24 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     if (document.activeElement !== $('#n-size')) $('#n-size').value = fmt(state.size);
     lastStated = fmt(state.stated);
     if (document.activeElement !== $('#n-stated')) $('#n-stated').value = lastStated;
-    for (const m of ['RFS', 'MMC']) $(`#mod-${m.toLowerCase()}`).setAttribute('aria-pressed', String(state.modifier === m));
+    for (const m of ['RFS', 'MMC', 'LMC']) $(`#mod-${m.toLowerCase()}`).setAttribute('aria-pressed', String(state.modifier === m));
     const TOL = res.tolerance; // allowed (stated + bonus)
     const R = res.radius;
     const sz = res.size;
     $('#spec-fcf').innerHTML = fcfHTML(state, 'fcf big');
     $('#spec-zone').textContent = `${state.modifier} · cylindrical zone (⌀ = allowed)`;
     const rej = res.verdict === 'REJECT_SIZE';
-    $('#tol-line').innerHTML = state.modifier === 'MMC' && rej
+    const bon = state.modifier !== 'RFS';
+    $('#tol-line').innerHTML = bon && rej
       ? `stated ⌀${fmt(sz.stated)} + bonus n/a <span class="muted">(size rejected)</span>`
-      : state.modifier === 'MMC'
+      : bon
       ? `stated ⌀${fmt(sz.stated)} + bonus ⌀${fmtLimit(sz.bonus)} = allowed ⌀${fmtLimit(sz.allowed)}`
       : `stated ⌀${fmt(sz.stated)} = allowed ⌀${fmtLimit(sz.allowed)} <span class="muted">(RFS: no bonus)</span>`;
-    $('#bonus-detail').textContent = state.modifier === 'MMC' ? (rej ? `no bonus: hole ⌀${fmt(sz.actualSize)} is outside ${SIZE_LIMITS}` : `bonus = actual ⌀${fmt(sz.actualSize)} − MMC ⌀${fmt(SPEC.hole.mmc)}`) : '\u00a0'; // keep the line's height at RFS (no jump)
-    $('#vc-line').textContent = state.modifier === 'MMC' ? `virtual condition ⌀${fmtNote(sz.virtualCondition)}` : '\u00a0';
-    $('#vc-line').style.visibility = state.modifier === 'MMC' ? 'visible' : 'hidden';
-    $('#bonus-detail').style.visibility = state.modifier === 'MMC' ? 'visible' : 'hidden';
+    $('#bonus-detail').textContent = bon ? (rej ? `no bonus: hole ⌀${fmt(sz.actualSize)} is outside ${SIZE_LIMITS}` : state.modifier === 'LMC' ? `bonus = LMC ⌀${fmt(SPEC.hole.lmc)} − actual ⌀${fmt(sz.actualSize)}` : `bonus = actual ⌀${fmt(sz.actualSize)} − MMC ⌀${fmt(SPEC.hole.mmc)}`) : '\u00a0'; // keep the line's height at RFS (no jump)
+    $('#vc-line').textContent = bon ? `${state.modifier === 'LMC' ? 'LMC ' : ''}virtual condition ⌀${fmtNote(sz.virtualCondition)}` : '\u00a0';
+    $('#vc-line').style.visibility = bon ? 'visible' : 'hidden';
+    $('#bonus-detail').style.visibility = bon ? 'visible' : 'hidden';
+    $('#teach-line').style.visibility = bon ? 'visible' : 'hidden';
     $('#th-r').textContent = `r vs ${fmtLimit(R)}`;
     $('#th-d').textContent = `2r vs ⌀${fmtLimit(TOL)}`;
     $('#rule-note').innerHTML = `mm, offsets from true position. r = √(dx² + dy²). IN only if <b>both</b> endpoints have r ≤ ${fmtLimit(R)} (boundary inclusive). Metric display: up to 3 decimals; measured values round up, limits round down.`;
@@ -129,8 +133,8 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     const badge = document.getElementById('status-badge');
     badge.className = `status-badge ${res.accept ? 'pass' : 'fail'}`;
     const small = res.verdict === 'REJECT_SIZE' ? `hole ⌀${fmt(sz.actualSize)} outside ${SIZE_LIMITS}`
-      : res.verdict === 'INVALID_TOL' ? 'stated ⌀0 is only valid at MMC'
-      : `position ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${state.modifier === 'MMC' ? ` ${MMC_SYM}` : ''}`;
+      : res.verdict === 'INVALID_TOL' ? 'stated ⌀0 needs MMC or LMC'
+      : `position ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${bon ? ` ${modSym(state.modifier)}` : ''}`;
     badge.innerHTML = `${BADGE[res.verdict]}<small>${small}</small><span class="size-note">${sizeNote(sz)}</span>`;
     document.getElementById('mag-badge').textContent = `Zone & deviations drawn ×${state.magnification} (display only)`;
     inset.render(state, res);
@@ -253,6 +257,7 @@ function template() {
     <div id="tol-line" class="tol-line"></div>
     <div id="bonus-detail" class="muted small"></div>
     <div id="vc-line" class="vc-line"></div>
+    <div id="teach-line" class="muted small teach">${TEACH}</div>
     <div class="size-note"></div>
   </section>
 
@@ -260,11 +265,11 @@ function template() {
     <h2>Hole size &amp; material condition</h2>
     <label class="ctl"><span>Hole ⌀</span><input type="range" id="r-size" min="${S.min}" max="${S.max}" step="${S.step}"/><input type="number" id="n-size" min="${S.min}" max="${S.max}" step="0.001"/></label>
     <div class="mc-row">
-      <span class="seg" role="group" aria-label="Material condition"><button id="mod-rfs" type="button" aria-pressed="true">RFS</button><button id="mod-mmc" type="button" aria-pressed="false">MMC ${MMC_SYM}</button></span>
+      <span class="seg" role="group" aria-label="Material condition"><button id="mod-rfs" type="button" aria-pressed="true">RFS</button><button id="mod-mmc" type="button" aria-pressed="false">MMC ${MMC_SYM}</button><button id="mod-lmc" type="button" aria-pressed="false">LMC ${LMC_SYM}</button></span>
       <label class="stated"><span>Stated ⌀</span><input type="number" id="n-stated" min="0" max="1" step="0.001"/></label>
     </div>
     <div id="mc-msg" class="mc-msg" role="status"></div>
-    <div class="muted small">Size limits ${SIZE_LIMITS} (MMC ⌀${fmt(SPEC.hole.mmc)}). Outside them the part is <b>REJECT: size</b>, whatever the axis. At MMC, bonus = actual size − ${fmt(SPEC.hole.mmc)}.</div>
+    <div class="muted small">Size limits ${SIZE_LIMITS} (MMC ⌀${fmt(SPEC.hole.mmc)}). Outside them the part is <b>REJECT: size</b>, whatever the axis. At MMC, bonus = actual size − ${fmt(SPEC.hole.mmc)}; at LMC, bonus = ${fmt(SPEC.hole.lmc)} − actual size.</div>
   </section>
 
   <section>

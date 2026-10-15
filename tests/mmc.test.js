@@ -103,7 +103,7 @@ test('conservative rounding: bonus floored to 0.0001, never overstated', () => {
 });
 
 test('bad inputs throw', () => {
-  assert.throws(() => tol(10.1, 'LMC'));
+  assert.throws(() => tol(10.1, 'LMB'));
   assert.throws(() => tol(10.1, 'MMC', -0.01));
   assert.throws(() => tol(NaN));
 });

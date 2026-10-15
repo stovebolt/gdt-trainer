@@ -183,6 +183,40 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   d = await read();
   const st2 = await page.evaluate(() => window.gdt.state.stated);
   ck(st2 === 0.25 && d.msg === '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.' && (await page.locator('#n-stated').inputValue()) === '0.25', 'typing ⌀0 at RFS is refused (reverted)', { stated: st2, msg: d.msg });
+  // ---- LMC + Sally's spot-check table (driven through the real segmented switch) ----
+  await setNum('#n-stated', 0.25);
+  await page.click('button[data-preset="centered"]');
+  const spot = { 10.0: [0.25, 0.25, 0.45], 10.1: [0.25, 0.35, 0.35], 10.2: [0.25, 0.45, 0.25] };
+  for (const [sz, exp] of Object.entries(spot)) {
+    await setNum('#n-size', sz);
+    const got = [];
+    for (const m of ['rfs', 'mmc', 'lmc']) { await page.click(`#mod-${m}`); got.push((await read()).allowed); }
+    ck(JSON.stringify(got) === JSON.stringify(exp), `spot-check ⌀${Number(sz).toFixed(2)}: RFS/MMC/LMC allowed = ${exp.join(' / ')}`, got);
+  }
+  const vcSweep = { MMC: new Set(), LMC: new Set() };
+  for (const m of ['MMC', 'LMC']) {
+    await page.click(`#mod-${m.toLowerCase()}`);
+    for (const sz of [10.0, 10.05, 10.1, 10.15, 10.2, 10.22]) { await setNum('#n-size', sz); const x = await read(); vcSweep[m].add(x.vc + ' | ' + x.mmcSym.vcNote); }
+  }
+  const mv = [...vcSweep.MMC], lv = [...vcSweep.LMC];
+  ck(mv.length === 1 && mv[0] === 'virtual condition ⌀9.75 | virtual condition ⌀9.75' && lv.length === 1 && lv[0] === 'LMC virtual condition ⌀10.45 | LMC virtual condition ⌀10.45', 'VC labels at default: MMC ⌀9.75, LMC ⌀10.45, unchanged while size moves (panel + drawing)', { mv, lv });
+  await setNum('#n-size', 10.05);
+  await page.click('button[data-preset="tilt-out"]');
+  d = await read();
+  const lx = await page.evaluate(() => ({ lsym: !!document.querySelector('#spec-fcf .mmcsym[aria-label="LMC"]'), dsym: !!document.querySelector('.fcf-label .mmcsym[aria-label="LMC"]'), teach: getComputedStyle(document.getElementById('teach-line')).visibility, teachText: document.getElementById('teach-line').innerText, bd: document.getElementById('bonus-detail').innerText }));
+  ck(d.verdict === 'IN' && d.allowed === 0.4 && d.tol === 'stated ⌀0.25 + bonus ⌀0.15 = allowed ⌀0.4' && lx.bd === 'bonus = LMC ⌀10.2 − actual ⌀10.05' && lx.lsym && lx.dsym && lx.teach === 'visible' && lx.teachText === 'MMC protects assembly, LMC protects material.', 'LMC ⌀10.05: bonus 0.15, allowed 0.4, Ⓛ in FCFs, teaching line shown, IN', { ...d, ...lx });
+  await page.screenshot({ path: 'screenshots/lmc_10.05.png' });
+  await setNum('#n-size', 10.22);
+  d = await read();
+  ck(d.verdict === 'REJECT_SIZE' && d.tol.includes('bonus n/a') && d.handleColors.every((c) => c === '#64748b') && d.zoneClass.includes(' na') && d.posValue === '⌀0.26', 'LMC ⌀10.22: REJECT: size, bonus n/a, gray, position kept', { verdict: d.verdict, tol: d.tol, posValue: d.posValue });
+  await setNum('#n-size', 10.1);
+  await setNum('#n-stated', 0);
+  d = await read();
+  ck(d.verdict !== 'INVALID_TOL' && d.allowed === 0.1, 'stated ⌀0 valid at LMC (bonus 0.1 at ⌀10.1)', { verdict: d.verdict, allowed: d.allowed });
+  await setNum('#n-stated', 0.25);
+  await page.click('#mod-rfs');
+  const tv = await page.evaluate(() => getComputedStyle(document.getElementById('teach-line')).visibility);
+  ck(tv === 'hidden', 'teaching line hidden at RFS', tv);
   await setNum('#n-size', 10.1);
 }
 

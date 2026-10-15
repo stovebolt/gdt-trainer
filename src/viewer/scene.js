@@ -310,7 +310,7 @@ function buildStatic() {
 const FCF_ANCHOR = [TP.x + 30, TP.y + 20, H];
 let fcfLabel = null;
 function fcfDrawingHTML(state, result) {
-  const vc = state.modifier === 'MMC' ? `<div class="vc-note">virtual condition ⌀${fmtNote(result ? result.size.virtualCondition : SPEC.hole.mmc - state.stated)}</div>` : '';
+  const vc = state.modifier !== 'RFS' ? `<div class="vc-note">${state.modifier === 'LMC' ? 'LMC ' : ''}virtual condition ⌀${fmtNote(state.modifier === 'LMC' ? SPEC.hole.lmc + state.stated : SPEC.hole.mmc - state.stated)}</div>` : '';
   return `<div class="callout">⌀${SPEC.hole.nominal} ±${SPEC.hole.plusMinus} THRU</div>${fcfHTML(state)}${vc}`;
 }
 

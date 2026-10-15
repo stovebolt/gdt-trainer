@@ -118,13 +118,15 @@ const roundUnits = (v) => Math.round(v * UNITS) / UNITS;
  *   comes from bonus).
  * - Virtual condition (hole, MMC) = mmc − stated. It depends only on the
  *   stated tolerance, never on the actual size.
+ * - LMC: bonus = lmc − actualSize (same clamps), allowed = stated + bonus.
+ *   ⌀0 valid as at MMC. LMC virtual condition (hole) = lmc + stated.
  * Bonus is floored to 0.0001 mm (conservative: never overstated).
  * On a size reject the bonus is not applicable: bonus = null and
  * allowed = stated (shown for information only; the verdict is REJECT: size).
  *
  * @param {object} p
  * @param {number} p.stated     stated position tolerance, diameter (mm), >= 0
- * @param {'RFS'|'MMC'} p.modifier
+ * @param {'RFS'|'MMC'|'LMC'} p.modifier
  * @param {number} p.actualSize actual hole diameter (mm)
  * @param {number} p.mmc        maximum material size of the hole = its smallest size (mm)
  * @param {number} p.lmc        least material size = its largest size (mm)
@@ -133,10 +135,11 @@ export function allowedTolerance({ stated, modifier, actualSize, mmc, lmc }) {
   assertFinite({ stated, actualSize, mmc, lmc });
   if (stated < 0) throw new RangeError('stated tolerance must be >= 0');
   if (lmc < mmc) throw new RangeError('lmc must be >= mmc for a hole');
-  if (modifier !== 'RFS' && modifier !== 'MMC') throw new RangeError(`modifier must be 'RFS' or 'MMC' (got ${modifier})`);
+  if (!['RFS', 'MMC', 'LMC'].includes(modifier)) throw new RangeError(`modifier must be 'RFS', 'MMC' or 'LMC' (got ${modifier})`);
   const sizeOk = actualSize >= mmc - EPS && actualSize <= lmc + EPS;
-  const statedValid = modifier === 'MMC' || stated > EPS;
-  const bonus = modifier !== 'MMC' ? 0 : sizeOk ? floorUnits(Math.min(Math.max(actualSize - mmc, 0), lmc - mmc)) : null;
+  const statedValid = modifier !== 'RFS' || stated > EPS;
+  const raw = modifier === 'MMC' ? actualSize - mmc : lmc - actualSize;
+  const bonus = modifier === 'RFS' ? 0 : sizeOk ? floorUnits(Math.min(Math.max(raw, 0), lmc - mmc)) : null;
   const allowed = floorUnits(stated + (bonus ?? 0));
   return {
     modifier,
@@ -146,7 +149,7 @@ export function allowedTolerance({ stated, modifier, actualSize, mmc, lmc }) {
     statedValid,
     bonus,
     allowed,
-    virtualCondition: modifier === 'MMC' ? roundUnits(mmc - stated) : null,
+    virtualCondition: modifier === 'MMC' ? roundUnits(mmc - stated) : modifier === 'LMC' ? roundUnits(lmc + stated) : null,
   };
 }
 

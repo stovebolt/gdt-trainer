@@ -73,3 +73,11 @@ test('default VC labels: MMC ⌀9.75, LMC ⌀10.45, unchanged across sizes', () 
     assert.equal(tol(s).virtualCondition, 10.45);
   }
 });
+
+test('LMC resultant condition = 10.00 − (stated + 0.20): ⌀9.55 at default, unchanged with size, LMC only', () => {
+  for (const s of [10.0, 10.05, 10.1, 10.15, 10.2, 9.95, 10.25]) assert.equal(tol(s).resultantCondition, 9.55, String(s));
+  assert.equal(tol(10.1, 0.1).resultantCondition, 9.7);
+  assert.equal(tol(10.1, 0).resultantCondition, 9.8);
+  assert.equal(tol(10.1, 0.12345).resultantCondition, 9.6766); // 9.67655 -> rounded UP (minimum boundary)
+  for (const m of ['RFS', 'MMC']) assert.equal(allowedTolerance({ stated: 0.25, modifier: m, actualSize: 10.1, mmc: H.mmc, lmc: H.lmc }).resultantCondition, null);
+});

@@ -134,7 +134,7 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   const readNow = () => page.evaluate(() => {
     const r = window.gdt.result();
     const t = (id) => document.getElementById(id).innerText.replace(/\s+/g, ' ').trim();
-    return { verdict: r.verdict, allowed: r.tolerance, radius: r.radius, status: t('pos-status'), tol: t('tol-line'), vcVis: getComputedStyle(document.getElementById('vc-line')).visibility, vc: t('vc-line'),
+    return { verdict: r.verdict, allowed: r.tolerance, radius: r.radius, status: t('pos-status'), tol: t('tol-line'), vcVis: getComputedStyle(document.getElementById('vc-line')).visibility, vc: t('vc-text'), rc: t('rc-text'),
       badge: document.getElementById('status-badge').innerText.split('\n')[0], zone: document.querySelector('.zone-label')?.innerText.replace(/\s+/g, ' '),
       zoneClass: document.querySelector('.zone-label')?.className, axisClass: document.querySelector('.axis-name-label')?.className,
       handleColors: ['top', 'bottom'].map((k) => '#' + window.gdt._debug.handles[k].material.color.getHexString()),
@@ -176,13 +176,13 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   await page.click('#mod-rfs');
   d = await read();
   const st = await page.evaluate(() => window.gdt.state.modifier);
-  ck(st === 'MMC' && d.msg === '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.', 'switching to RFS with stated ⌀0 is blocked', { modifier: st, msg: d.msg });
+  ck(st === 'MMC' && d.msg === '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.', 'switching to RFS with stated ⌀0 is blocked', { modifier: st, msg: d.msg });
   await setNum('#n-stated', 0.25);
   await page.click('#mod-rfs');
   await setNum('#n-stated', 0);
   d = await read();
   const st2 = await page.evaluate(() => window.gdt.state.stated);
-  ck(st2 === 0.25 && d.msg === '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.' && (await page.locator('#n-stated').inputValue()) === '0.25', 'typing ⌀0 at RFS is refused (reverted)', { stated: st2, msg: d.msg });
+  ck(st2 === 0.25 && d.msg === '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.' && (await page.locator('#n-stated').inputValue()) === '0.25', 'typing ⌀0 at RFS is refused (reverted)', { stated: st2, msg: d.msg });
   // ---- LMC + Sally's spot-check table (driven through the real segmented switch) ----
   await setNum('#n-stated', 0.25);
   await page.click('button[data-preset="centered"]');
@@ -196,10 +196,10 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   const vcSweep = { MMC: new Set(), LMC: new Set() };
   for (const m of ['MMC', 'LMC']) {
     await page.click(`#mod-${m.toLowerCase()}`);
-    for (const sz of [10.0, 10.05, 10.1, 10.15, 10.2, 10.22]) { await setNum('#n-size', sz); const x = await read(); vcSweep[m].add(x.vc + ' | ' + x.mmcSym.vcNote); }
+    for (const sz of [10.0, 10.05, 10.1, 10.15, 10.2, 10.22]) { await setNum('#n-size', sz); const x = await read(); vcSweep[m].add(x.vc + ' | ' + x.rc + ' | ' + x.mmcSym.vcNote + ' | rc:' + (await page.evaluate(() => [getComputedStyle(document.getElementById('rc-text')).visibility, document.querySelector('.fcf-label .rc-note')?.innerText ?? ''].join('/')))); }
   }
   const mv = [...vcSweep.MMC], lv = [...vcSweep.LMC];
-  ck(mv.length === 1 && mv[0] === 'virtual condition ⌀9.75 | virtual condition ⌀9.75' && lv.length === 1 && lv[0] === 'LMC virtual condition ⌀10.45 | LMC virtual condition ⌀10.45', 'VC labels at default: MMC ⌀9.75, LMC ⌀10.45, unchanged while size moves (panel + drawing)', { mv, lv });
+  ck(mv.length === 1 && lv.length === 1 && /^virtual condition ⌀9\.75 \| .* \| virtual condition ⌀9\.75 \| rc:hidden\/$/.test(mv[0]) && lv[0] === 'LMC virtual condition ⌀10.45 | LMC resultant condition ⌀9.55 | LMC virtual condition ⌀10.45 | rc:visible/LMC resultant condition ⌀9.55', 'VC labels at default: MMC ⌀9.75, LMC ⌀10.45 + LMC resultant ⌀9.55 (LMC only), unchanged while size moves (panel + drawing)', { mv, lv });
   await setNum('#n-size', 10.05);
   await page.click('button[data-preset="tilt-out"]');
   d = await read();

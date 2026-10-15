@@ -218,7 +218,7 @@ smallest hole), hole LMC ⌀10.20 (the largest).
 | 5 | Readout: "stated ⌀0.25 + bonus ⌀0.0xx = allowed ⌀0.xxx", with the bonus hidden at RFS | MMC: `stated ⌀0.25 + bonus ⌀0.15 = allowed ⌀0.4`. RFS: `stated ⌀0.25 = allowed ⌀0.25 (RFS: no bonus)`. Metric display, ≤ 3 decimals; bonus and allowed round down |
 | 6 | At MMC, a "virtual condition" label | **VC = 10.00 − stated**: ⌀9.75 at the default. It updates when the stated tolerance is edited and **never** changes with hole size. Shown in the panel and under the FCF in the drawing, at MMC only |
 | a | RFS/MMC toggle and an editable stated tolerance (default 0.25) | The MMC math uses the stated value. The Ⓜ symbol (drawn as an SVG, so no missing-glyph risk) appears in the panel FCF, the phone FCF chip and the 3D drawing FCF, at MMC only |
-| b | A stated ⌀0 is valid at MMC (all tolerance from bonus) and invalid at RFS | The math marks ⌀0 at RFS as `INVALID_TOL` (never accepted). The UI **blocks** it: typing 0 at RFS is refused and reverted, and switching to RFS while the stated value is 0 is refused. Both show the reason line (Sally's exact wording; ⌀0 is equally valid at LMC, see §9) *"⌀0 is only meaningful at MMC, where bonus supplies the tolerance."* |
+| b | A stated ⌀0 is valid at MMC (all tolerance from bonus) and invalid at RFS | The math marks ⌀0 at RFS as `INVALID_TOL` (never accepted). The UI **blocks** it: typing 0 at RFS is refused and reverted, and switching to RFS while the stated value is 0 is refused. Both show the reason line (Sally's wording, updated 2026-10-15 to name LMC too) *"⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance."* |
 | c | On REJECT: size, the readout shows "bonus n/a", with no bonus amount | `bonus = null` (n/a) when the size is outside the limits, so `allowed` falls back to the stated value (for information only). MMC readout: `stated ⌀0.25 + bonus n/a (size rejected)` |
 | d | On REJECT: size, the zone and handles are neutral gray, with the position number kept | The zone, actual axis and its label, TOP/BOTTOM handles, endpoint rows and inset all turn neutral gray (#64748b), with no ✔/✘. The reported position (rounded up) stays in the readout, marked "(info)", and the handle tags show r "(size rejected)" |
 
@@ -271,6 +271,7 @@ phone chip and 3D drawing) shows Ⓛ at LMC. Tests: `tests/lmc.test.js`.
 | 2 | allowed = stated + bonus: 0.25 at ⌀10.20, 0.45 at ⌀10.00 | Same `allowed` path as MMC, so the zone, inset and labels all follow it |
 | 3 | A fixed label "LMC virtual condition ⌀(10.20 + stated)", ⌀10.45 at the default | `virtualCondition = lmc + stated`. It follows the stated value and **never** changes with size. Shown in the panel and under the drawing FCF |
 | 4 | Size reject, ⌀0 handling and gray zone work as at MMC, and the bonus rounds down | REJECT: size gives bonus n/a, a gray zone and the position kept. A stated ⌀0 is valid at LMC (and MMC) and blocked at RFS |
+| 5 | A fixed label "LMC resultant condition ⌀X", X = 10.00 − (stated + 0.20), i.e. MMC size minus the allowed tolerance at MMC size: ⌀9.55 at the default | `resultantCondition = mmc − (stated + (lmc − mmc))`, **rounded up** because it is a minimum boundary (math to 0.0001 mm, display to 0.001 mm). Shown beside the LMC virtual condition, in the panel and under the drawing FCF, **at LMC only** (its space is reserved at RFS/MMC so the panel does not jump). It follows the stated value (0.1 → ⌀9.7, 0 → ⌀9.8) and never changes with size |
 | — | Teaching line | *"MMC protects assembly, LMC protects material."* appears in small italics under the VC line at MMC and LMC, and is hidden at RFS |
 
 ### Sally's spot-check table (stated ⌀0.25; unit-tested and browser-checked)
@@ -281,6 +282,6 @@ phone chip and 3D drawing) shows Ⓛ at LMC. Tests: `tests/lmc.test.js`.
 | ⌀10.10 | 0.25 | 0.35 | 0.35 |
 | ⌀10.20 | 0.25 | 0.45 | 0.25 |
 
-At the default tolerance, the VC labels read **⌀9.75 at MMC** and **⌀10.45 at LMC**.
+At the default tolerance, the VC labels read **⌀9.75 at MMC** and **⌀10.45 at LMC**, and the LMC resultant condition reads **⌀9.55**.
 They stay unchanged while the size slider moves from ⌀10.00 to ⌀10.22 (checked
 in the panel and in the drawing). LMC ⌀10.05 gives bonus 0.15 and allowed 0.4.

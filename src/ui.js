@@ -13,7 +13,7 @@ export const STATUS = { IN: 'IN TOLERANCE', OUT: 'OUT OF TOLERANCE', REJECT_SIZE
 /** Shown when a stated ⌀0 is refused at RFS (Sally). */
 /** Teaching line shown (small) at MMC and LMC. */
 export const TEACH = 'MMC protects assembly, LMC protects material.';
-export const ZERO_REASON = '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.';
+export const ZERO_REASON = '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.';
 const BADGE = { IN: '✔ IN', OUT: '✘ OUT', REJECT_SIZE: '✘ REJECT: size', INVALID_TOL: '✘ INVALID' };
 const SVGNS = 'http://www.w3.org/2000/svg';
 
@@ -95,7 +95,10 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
       ? `stated ⌀${fmt(sz.stated)} + bonus ⌀${fmtLimit(sz.bonus)} = allowed ⌀${fmtLimit(sz.allowed)}`
       : `stated ⌀${fmt(sz.stated)} = allowed ⌀${fmtLimit(sz.allowed)} <span class="muted">(RFS: no bonus)</span>`;
     $('#bonus-detail').textContent = bon ? (rej ? `no bonus: hole ⌀${fmt(sz.actualSize)} is outside ${SIZE_LIMITS}` : state.modifier === 'LMC' ? `bonus = LMC ⌀${fmt(SPEC.hole.lmc)} − actual ⌀${fmt(sz.actualSize)}` : `bonus = actual ⌀${fmt(sz.actualSize)} − MMC ⌀${fmt(SPEC.hole.mmc)}`) : '\u00a0'; // keep the line's height at RFS (no jump)
-    $('#vc-line').textContent = bon ? `${state.modifier === 'LMC' ? 'LMC ' : ''}virtual condition ⌀${fmtNote(sz.virtualCondition)}` : '\u00a0';
+    $('#vc-text').textContent = bon ? `${state.modifier === 'LMC' ? 'LMC ' : ''}virtual condition ⌀${fmtNote(sz.virtualCondition)}` : '\u00a0';
+    const lmc = state.modifier === 'LMC';
+    $('#rc-text').textContent = `LMC resultant condition ⌀${fmtUp(lmc ? sz.resultantCondition : SPEC.hole.mmc - (state.stated + SPEC.hole.lmc - SPEC.hole.mmc))}`;
+    $('#rc-text').style.visibility = lmc ? '' : 'hidden'; // reserve its space at RFS/MMC (no layout jump)
     $('#vc-line').style.visibility = bon ? 'visible' : 'hidden';
     $('#bonus-detail').style.visibility = bon ? 'visible' : 'hidden';
     $('#teach-line').style.visibility = bon ? 'visible' : 'hidden';
@@ -256,7 +259,7 @@ function template() {
     <div id="pos-detail" class="muted"></div>
     <div id="tol-line" class="tol-line"></div>
     <div id="bonus-detail" class="muted small"></div>
-    <div id="vc-line" class="vc-line"></div>
+    <div id="vc-line" class="vc-line"><span id="vc-text"></span><span id="rc-text" class="rc"></span></div>
     <div id="teach-line" class="muted small teach">${TEACH}</div>
     <div class="size-note"></div>
   </section>

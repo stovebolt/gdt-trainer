@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { ZERO_REASON, STATUS, sizeNote } from '../src/ui.js';
 
 test("refusing ⌀0 at RFS shows Sally's reason line", () => {
-  assert.equal(ZERO_REASON, '⌀0 is only meaningful at MMC, where bonus supplies the tolerance.');
+  assert.equal(ZERO_REASON, '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.');
 });
 
 test('status strings and metric size note', () => {

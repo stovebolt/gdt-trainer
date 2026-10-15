@@ -175,7 +175,9 @@ button:hover { background: #e2e8f0; }
 .mmcsym { width: 1.05em; height: 1.05em; display: inline-block; vertical-align: -0.17em; margin-left: 2px; }
 .fcf td.tol { white-space: nowrap; }
 .tol-line { font: 700 16px system-ui; margin-top: 6px; }
-.vc-line { font: 700 14px system-ui; color: #6d28d9; margin-top: 2px; }
+.vc-line { font: 700 14px system-ui; color: #6d28d9; margin-top: 2px; display: flex; flex-wrap: wrap; column-gap: 14px; }
+.vc-line .rc { color: #9d174d; }
+.rc-note { color: #9d174d; }
 .vc-note { font: 700 12px system-ui; color: #6d28d9; background: rgba(255,255,255,.85); width: fit-content; margin-top: 3px; padding: 0 3px; }
 .mc .mc-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0 4px; }
 .mc .seg { display: inline-flex; }

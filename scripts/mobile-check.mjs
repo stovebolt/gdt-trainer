@@ -163,10 +163,10 @@ for (const name of DEVICES) {
     await page.locator('#n-size').fill('10.05'); await page.locator('#n-size').press('Enter'); await page.locator('#n-size').blur();
     await page.evaluate(() => { window.gdt.applyPreset('tilt-out'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
     await page.waitForTimeout(600);
-    const lm = await page.evaluate(() => ({ modifier: window.gdt.state.modifier, allowed: window.gdt.result().tolerance, verdict: window.gdt.result().verdict, chipL: !!document.querySelector('#fcf-chip .mmcsym[aria-label="LMC"]'), vc: document.getElementById('vc-line').innerText }));
+    const lm = await page.evaluate(() => ({ modifier: window.gdt.state.modifier, allowed: window.gdt.result().tolerance, verdict: window.gdt.result().verdict, chipL: !!document.querySelector('#fcf-chip .mmcsym[aria-label="LMC"]'), vc: document.getElementById('vc-text').innerText, rc: document.getElementById('rc-text').innerText, rcVis: getComputedStyle(document.getElementById('rc-text')).visibility }));
     const segOk = Object.values(segBB).every((b) => b.height >= 40 && b.width >= 40);
     check('RFS | MMC | LMC segments each >= 40px and work by touch', segOk && lm.modifier === 'LMC', Object.entries(segBB).map(([k, b]) => `${k} ${Math.round(b.width)}x${Math.round(b.height)}`).join(', ') + ` → ${lm.modifier}`);
-    check('LMC ⌀10.05: allowed 0.4, chip shows Ⓛ, LMC VC ⌀10.45, tilt-out IN', lm.allowed === 0.4 && lm.verdict === 'IN' && lm.chipL && lm.vc === 'LMC virtual condition ⌀10.45', JSON.stringify(lm));
+    check('LMC ⌀10.05: allowed 0.4, chip shows Ⓛ, LMC VC ⌀10.45 + resultant ⌀9.55, tilt-out IN', lm.allowed === 0.4 && lm.verdict === 'IN' && lm.chipL && lm.vc === 'LMC virtual condition ⌀10.45' && lm.rc === 'LMC resultant condition ⌀9.55' && lm.rcVis === 'visible', JSON.stringify(lm));
     await page.screenshot({ path: `${OUT}/${slug(name)}-lmc-10.05-${TAG}.png` });
     await page.evaluate(() => { window.gdt.setSize(10.1); window.gdt.setModifier('RFS'); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
     await page.waitForTimeout(400);

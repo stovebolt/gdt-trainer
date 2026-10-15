@@ -105,6 +105,8 @@ function assertFinite(obj) {
 const UNITS = 1e4;
 /** Round DOWN to 0.0001 (tiny float noise forgiven), so a bonus is never overstated. */
 const floorUnits = (v) => Math.floor(v * UNITS + 1e-6) / UNITS;
+/** Round UP to 0.0001 (minimum boundaries are never understated). */
+const ceilUnits = (v) => Math.ceil(v * UNITS - 1e-6) / UNITS;
 const roundUnits = (v) => Math.round(v * UNITS) / UNITS;
 
 /**
@@ -120,6 +122,8 @@ const roundUnits = (v) => Math.round(v * UNITS) / UNITS;
  *   stated tolerance, never on the actual size.
  * - LMC: bonus = lmc − actualSize (same clamps), allowed = stated + bonus.
  *   ⌀0 valid as at MMC. LMC virtual condition (hole) = lmc + stated.
+ *   LMC resultant condition = mmc − (stated + (lmc − mmc)), rounded up; it
+ *   depends only on the stated tolerance.
  * Bonus is floored to 0.0001 mm (conservative: never overstated).
  * On a size reject the bonus is not applicable: bonus = null and
  * allowed = stated (shown for information only; the verdict is REJECT: size).
@@ -149,6 +153,8 @@ export function allowedTolerance({ stated, modifier, actualSize, mmc, lmc }) {
     statedValid,
     bonus,
     allowed,
+    // LMC resultant condition (hole) = MMC size − allowed at MMC size = mmc − (stated + (lmc − mmc)); a minimum boundary, rounded up.
+    resultantCondition: modifier === 'LMC' ? ceilUnits(mmc - (stated + (lmc - mmc))) : null,
     virtualCondition: modifier === 'MMC' ? roundUnits(mmc - stated) : modifier === 'LMC' ? roundUnits(lmc + stated) : null,
   };
 }

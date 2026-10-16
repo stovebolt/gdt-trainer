@@ -171,3 +171,49 @@ export function evaluatePart({ truePosition, bottom, top, thickness, stated, mod
   const verdict = !tol.statedValid ? 'INVALID_TOL' : !tol.sizeOk ? 'REJECT_SIZE' : pos.inTolerance ? 'IN' : 'OUT';
   return { ...pos, size: tol, verdict, accept: verdict === 'IN' };
 }
+
+// ---------------------------------------------------------------------------
+// "Lock in tolerance" (Will; spec revised by Sally and Gleeb)
+// ---------------------------------------------------------------------------
+
+/** Tiny margin kept inside the zone boundary (mm). */
+export const LOCK_EPS = 1e-6;
+
+const truncGrid = (v, grid) => { const g = 1 / grid; return (Math.trunc(v * g + Math.sign(v) * 1e-9) / g) || 0; };
+/** Scale p radially to radius rMax (direction kept), then truncate toward zero onto the grid (r can only shrink). */
+const toRadius = (p, rMax, grid) => {
+  const r = Math.hypot(p.dx, p.dy);
+  if (r <= rMax) return { dx: p.dx, dy: p.dy };
+  const k = r > 0 ? rMax / r : 0;
+  return { dx: truncGrid(p.dx * k, grid), dy: truncGrid(p.dy * k, grid) };
+};
+
+/**
+ * One endpoint, one user drag/tilt step, with the lock on. Pure.
+ * - prev inside (r <= allowed/2 − eps): next is clamped radially to allowed/2 − eps.
+ * - prev outside (the zone shrank under it, or a preset put it there): the drag
+ *   may only REDUCE its radial offset. A larger next is pulled back to r(prev)
+ *   (direction of next kept), so it can slide around or come inward, never out.
+ *   Once inside, the normal clamp applies on the next step.
+ * Each endpoint is handled separately, so tilting right up to the edge works.
+ * The zone is convex, so two endpoints inside keep the whole axis inside.
+ */
+export function lockDrag({ prev, next, allowed, eps = LOCK_EPS, grid = 1e-3 }) {
+  assertFinite({ allowed, pdx: prev.dx, pdy: prev.dy, ndx: next.dx, ndy: next.dy });
+  if (allowed < 0) throw new RangeError('allowed must be >= 0');
+  const rMax = Math.max(0, allowed / 2 - eps);
+  const rPrev = Math.hypot(prev.dx, prev.dy);
+  return toRadius(next, rPrev <= rMax ? rMax : Math.max(rMax, rPrev), grid);
+}
+
+/**
+ * Should the "zone shrank: less bonus at this size" note show? Pure.
+ * True only when the axis would be IN at the allowed value from before the
+ * shrink (taken while the lock was on) and is OUT at the current allowed value,
+ * i.e. the shrink, not the axis, caused the OUT.
+ */
+export function shrinkCausedOut({ rBottom, rTop, allowedBefore, allowedNow }) {
+  if (allowedBefore == null || !(allowedNow < allowedBefore)) return false;
+  const r = Math.max(rBottom, rTop);
+  return r <= allowedBefore / 2 + EPS && r > allowedNow / 2 + EPS;
+}

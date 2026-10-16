@@ -12,12 +12,14 @@ export const sizeNote = (size) => size.sizeOk
 export const STATUS = { IN: 'IN TOLERANCE', OUT: 'OUT OF TOLERANCE', REJECT_SIZE: 'REJECT: size', INVALID_TOL: 'INVALID: ⌀0 at RFS' };
 /** Shown when a stated ⌀0 is refused at RFS (Sally). */
 /** Teaching line shown (small) at MMC and LMC. */
+/** Lock on, zone shrank (size / mode / stated) and that shrink caused the OUT. */
+export const SHRINK_NOTE = 'zone shrank: less bonus at this size';
 export const TEACH = 'MMC protects assembly, LMC protects material.';
 export const ZERO_REASON = '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.';
 const BADGE = { IN: '✔ IN', OUT: '✘ OUT', REJECT_SIZE: '✘ REJECT: size', INVALID_TOL: '✘ INVALID' };
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onSize, onModifier, onStated, onResetCamera, onZoomHole, clampOffset }) {
+export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onSize, onModifier, onStated, onLock, onResetCamera, onZoomHole, clampOffset }) {
   root.innerHTML = template();
   const $ = (sel) => root.querySelector(sel);
 
@@ -56,6 +58,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
       else msg('');
     });
   }
+  $('#lock-btn').addEventListener('click', () => onLock($('#lock-btn').getAttribute('aria-pressed') !== 'true'));
   $('#n-stated').addEventListener('change', (e) => {
     const v = Number(e.target.value);
     if (!Number.isFinite(v) || onStated(v) === false) {
@@ -81,6 +84,8 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     if (document.activeElement !== $('#n-size')) $('#n-size').value = fmt(state.size);
     lastStated = fmt(state.stated);
     if (document.activeElement !== $('#n-stated')) $('#n-stated').value = lastStated;
+    $('#shrink-note').style.visibility = res.shrinkNote ? 'visible' : 'hidden';
+    $('#lock-btn').setAttribute('aria-pressed', String(!!state.lock));
     for (const m of ['RFS', 'MMC', 'LMC']) $(`#mod-${m.toLowerCase()}`).setAttribute('aria-pressed', String(state.modifier === m));
     const TOL = res.tolerance; // allowed (stated + bonus)
     const R = res.radius;
@@ -259,6 +264,7 @@ function template() {
     <div id="pos-detail" class="muted"></div>
     <div id="tol-line" class="tol-line"></div>
     <div id="bonus-detail" class="muted small"></div>
+    <div id="shrink-note" class="shrink-note" style="visibility:hidden">${SHRINK_NOTE}</div>
     <div id="vc-line" class="vc-line"><span id="vc-text"></span><span id="rc-text" class="rc"></span></div>
     <div id="teach-line" class="muted small teach">${TEACH}</div>
     <div class="size-note"></div>
@@ -270,6 +276,7 @@ function template() {
     <div class="mc-row">
       <span class="seg" role="group" aria-label="Material condition"><button id="mod-rfs" type="button" aria-pressed="true">RFS</button><button id="mod-mmc" type="button" aria-pressed="false">MMC ${MMC_SYM}</button><button id="mod-lmc" type="button" aria-pressed="false">LMC ${LMC_SYM}</button></span>
       <label class="stated"><span>Stated ⌀</span><input type="number" id="n-stated" min="0" max="1" step="0.001"/></label>
+      <button id="lock-btn" type="button" class="lock-btn" aria-pressed="false" title="Endpoints cannot leave the allowed zone (bonus included)">Lock in tolerance</button>
     </div>
     <div id="mc-msg" class="mc-msg" role="status"></div>
     <div class="muted small">Size limits ${SIZE_LIMITS} (MMC ⌀${fmt(SPEC.hole.mmc)}). Outside them the part is <b>REJECT: size</b>, whatever the axis. At MMC, bonus = actual size − ${fmt(SPEC.hole.mmc)}; at LMC, bonus = ${fmt(SPEC.hole.lmc)} − actual size.</div>

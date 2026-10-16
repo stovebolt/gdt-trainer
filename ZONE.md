@@ -285,3 +285,20 @@ phone chip and 3D drawing) shows Ⓛ at LMC. Tests: `tests/lmc.test.js`.
 At the default tolerance, the VC labels read **⌀9.75 at MMC** and **⌀10.45 at LMC**, and the LMC resultant condition reads **⌀9.55**.
 They stay unchanged while the size slider moves from ⌀10.00 to ⌀10.22 (checked
 in the panel and in the drawing). LMC ⌀10.05 gives bonus 0.15 and allowed 0.4.
+
+## 10. Lock in tolerance (Will; spec revised by Sally and Gleeb)
+
+A **"Lock in tolerance"** toggle, off by default, sits beside the stated
+tolerance (at least 40 px on phones). The math is pure, in `src/tolerance.js`
+(`lockDrag`, `shrinkCausedOut`). Tests: `tests/lock.test.js`. Browser checks:
+`scripts/screenshots.mjs` (mouse) and `scripts/mobile-check.mjs` (touch, 8 devices).
+
+| Rule | Implementation |
+|---|---|
+| Applies only to **user drags and tilts** (3D handles, inset dots, offset/tilt controls). **Presets are not clamped** | `setAxis(patch, { user: true })` goes through `lockDrag`; presets call `setAxis` without it |
+| Each endpoint is clamped **separately** to radial offset ≤ allowed/2 − ε (ε = 1e-6 mm), using the **current** allowed (bonus included) | Radial scale toward true position (direction kept), then truncated toward zero onto the 0.001 mm grid, which only shrinks r. Tilting edge-to-edge works (e.g. top +0.124, bottom −0.124 at ⌀0.25). The zone is convex, so the whole axis stays inside |
+| **No automatic re-clamp** when the zone shrinks (size, mode or stated) | The axis stays where it is. If it ends up outside, the verdict is a normal **OUT** (red) |
+| Note *"zone shrank: less bonus at this size"* | Shown only when the lock was on during the shrink **and** the shrink caused the OUT: the axis is IN at the pre-shrink allowed and OUT now (`shrinkCausedOut`). A preset or turning the lock off clears it; it hides once the axis is back IN or the zone grows back |
+| Outside + locked: a drag may only **reduce** the radial offset | A step that would increase r is **projected** onto the disc of the current r (direction of the pointer kept), not rejected. Sideways or tangential drags slide around and creep inward, so the handle never sticks. Once inside, the normal clamp applies |
+| Size reject while locked | The position clamp still applies; the verdict stays **REJECT: size** with the gray zone |
+| Display | A locked axis at the edge shows e.g. "position ⌀0.45 ≤ ⌀0.45" (true value 0.4492). The pass display is capped at the shown limit (§4), so it never reads above the limit |

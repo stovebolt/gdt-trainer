@@ -127,6 +127,40 @@ const insetOk = inset.b.dx > -0.09 && Math.abs(inset.b.dy) < 2e-3 && inset.t.dx 
 failed ||= !insetOk;
 console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b.dx}, dy=${inset.b.dy}; top unchanged=${inset.t.dx === 0.1}`);
 
+  // ---- Lock in tolerance: shrink -> OUT + note, then drag the handle back IN ----
+  {
+    const ckL = (l, ok, x) => { failed ||= !ok; console.log(`${ok ? 'OK  ' : 'FAIL'} ${l} — ${x}`); };
+    const lockBB = await (async () => { await page.locator('#lock-btn').scrollIntoViewIfNeeded(); await page.click('#lock-btn'); return page.locator('#lock-btn').boundingBox(); })();
+    await page.evaluate(() => { window.gdt.setModifier('MMC'); window.gdt.setStated(0.25); window.gdt.setSize(10.2); window.gdt.applyPreset('centered'); window.gdt.dragAxis({ top: { dx: 0.4, dy: 0.05 } }); });
+    await page.waitForTimeout(200);
+    const L0 = await page.evaluate(() => ({ lock: window.gdt.state.lock, top: { ...window.gdt.state.top }, v: window.gdt.result().verdict }));
+    const r0 = Math.hypot(L0.top.dx, L0.top.dy);
+    ckL('lock: toggle on, a drag past the edge clamps to the zone (IN)', L0.lock && r0 <= 0.225 && r0 > 0.22 && L0.v === 'IN', `btn ${Math.round(lockBB.width)}x${Math.round(lockBB.height)} r=${r0.toFixed(4)} ${L0.v}`);
+    await page.evaluate(() => window.gdt.setSize(10.0));
+    await page.waitForTimeout(300);
+    const L1 = await page.evaluate(() => ({ top: { ...window.gdt.state.top }, v: window.gdt.result().verdict, note: getComputedStyle(document.getElementById('shrink-note')).visibility, noteText: document.getElementById('shrink-note').innerText, badge: document.getElementById('status-badge').innerText.split('\n')[0] }));
+    ckL('lock: size 10.2 -> 10.0 leaves the axis put, OUT (red) + "zone shrank: less bonus at this size"', L1.top.dx === L0.top.dx && L1.top.dy === L0.top.dy && L1.v === 'OUT' && L1.badge.includes('OUT') && L1.note === 'visible' && L1.noteText.includes('zone shrank: less bonus at this size'), JSON.stringify(L1));
+    await page.screenshot({ path: 'screenshots/lock_shrunk_out.png' });
+    const pts = await page.evaluate(() => {
+      const { top, bottom } = window.gdt._debug.handles, cam = window.gdt._debug.camera, r = window.gdt._debug.canvas.getBoundingClientRect();
+      const P = (v) => { const p = v.clone().project(cam); return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height }; };
+      return { h: P(top.position), c: P(top.position.clone().setX(bottom.position.x).setY(bottom.position.y)) };
+    });
+    // Path: a tangential/sideways wiggle first (must not stick), then inward to the centre.
+    const vx = pts.c.x - pts.h.x, vy = pts.c.y - pts.h.y;
+    const path = [[pts.h.x - vy * 0.3, pts.h.y + vx * 0.3], [pts.h.x + vy * 0.3, pts.h.y - vx * 0.3], [pts.h.x + vx * 0.5 + vy * 0.2, pts.h.y + vy * 0.5 - vx * 0.2], [pts.c.x, pts.c.y]];
+    const rs = [];
+    await (async (h, path, each) => { await page.mouse.move(h.x, h.y); await page.mouse.down(); let cur = h; for (const [x, y] of path) { for (let i = 1; i <= 6; i++) { await page.mouse.move(cur.x + ((x - cur.x) * i) / 6, cur.y + ((y - cur.y) * i) / 6); await each(); } cur = { x, y }; } await page.mouse.up(); })(pts.h, path, async () => rs.push(await page.evaluate(() => Math.hypot(window.gdt.state.top.dx, window.gdt.state.top.dy))));
+    await page.waitForTimeout(250);
+    const L2 = await page.evaluate(() => ({ top: { ...window.gdt.state.top }, v: window.gdt.result().verdict, note: getComputedStyle(document.getElementById('shrink-note')).visibility }));
+    const r2 = Math.hypot(L2.top.dx, L2.top.dy);
+    const mono = rs.every((x, i) => i === 0 || x <= rs[i - 1] + 1e-9);
+    ckL('lock: dragging the OUT handle back (sideways wiggle, then inward) never sticks and ends IN', L2.v === 'IN' && r2 < 0.125 && mono && L2.note === 'hidden' && rs.length > 3, `r ${rs.map((x) => x.toFixed(3)).join('→')} → ${r2.toFixed(3)} ${L2.v}`);
+    await page.screenshot({ path: 'screenshots/lock_dragged_in.png' });
+    await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setSize(10.1); window.gdt.setModifier('RFS'); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    await page.waitForTimeout(300);
+  }
+
 // ---- MMC / bonus (Sally's rules), driven through the real controls ----------
 {
   const setNum = async (sel, v) => { await page.locator(sel).fill(String(v)); await page.locator(sel).press('Enter'); await page.locator(sel).blur(); await page.waitForTimeout(120); };

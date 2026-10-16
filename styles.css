@@ -205,3 +205,10 @@ button:hover { background: #e2e8f0; }
 @media (max-width: 700px), (max-height: 500px) {
   .mc .seg button { min-height: 40px; min-width: 56px; }
 }
+.mc .lock-btn { border-radius: 8px; }
+.mc .lock-btn[aria-pressed="true"] { background: #0f766e; border-color: #0f766e; color: #fff; }
+@media (max-width: 700px), (max-height: 500px) {
+  .mc .lock-btn { min-height: 40px; min-width: 40px; }
+}
+.shrink-note { font: 700 13px system-ui; color: #b91c1c; }
+.shrink-note::before { content: "⚠ "; }

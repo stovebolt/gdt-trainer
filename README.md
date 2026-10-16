@@ -65,6 +65,7 @@ Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
   size note *"Hole size ⌀10.1 ✔ within ⌀10–10.2"*.
 - **Hole size & material condition** (panel): an actual-size slider (⌀9.95–10.25)
   with a number box, an RFS | MMC | LMC segmented switch (LMC: bonus = 10.20 − size, VC = 10.20 + stated, see ZONE.md §9) and the editable stated tolerance.
+- **Lock in tolerance** toggle (off by default): user drags and tilts can't take an endpoint outside the current allowed zone (each endpoint clamped separately; presets not clamped). If the zone later shrinks (size, mode or stated), the axis stays put and reads OUT with the note "zone shrank: less bonus at this size". Dragging an outside endpoint can only bring it inward (projected, never stuck). See ZONE.md §10.
   A size outside ⌀10–10.2 gives **REJECT: size**. The readout then shows
   *bonus n/a*, and the zone, axis and handles turn neutral gray, with the
   position number kept for information. At MMC the readout

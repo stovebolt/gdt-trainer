@@ -2,12 +2,14 @@
 //   TOP handle    -> moves the axis crossing at z = 10 (tilts the axis)
 //   BOTTOM handle -> moves the axis crossing at z = 0  (tilts the axis)
 //   SLIDE handle  -> moves both together (lateral shift, tilt unchanged)
-// Each drag happens in the horizontal plane through the grabbed handle, and
-// screen motion is divided by the magnification to get real millimetres.
+// The drag plane follows the view (see views.js dragPlane): the horizontal
+// plane through the grabbed handle when looking down (top view, 3D orbit), or a
+// vertical plane facing the camera in front/side views, so the drag moves the
+// visible in-plane axis. Motion is divided by the magnification (real mm).
 import * as THREE from 'three';
-import { fromVisualDelta } from './exaggeration.js';
+import { dragPlane, dragDelta } from './views.js';
 
-export function attachDrag({ camera, domElement, controls, handles, getState, onChange, clampOffset }) {
+export function attachDrag({ getCamera, domElement, controls, handles, getState, onChange, clampOffset }) {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const plane = new THREE.Plane();
@@ -17,7 +19,7 @@ export function attachDrag({ camera, domElement, controls, handles, getState, on
   const setRay = (ev) => {
     const r = domElement.getBoundingClientRect();
     ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
-    raycaster.setFromCamera(ndc, camera);
+    raycaster.setFromCamera(ndc, getCamera());
   };
   // Screen-space grab radius around each handle (CSS px). Fingers get a much
   // larger target than a mouse; a direct ray hit always wins.
@@ -31,7 +33,7 @@ export function attachDrag({ camera, domElement, controls, handles, getState, on
     let best = null;
     let bestD = grabRadius(ev);
     for (const h of handles.list) {
-      tmp.copy(h.position).project(camera);
+      tmp.copy(h.position).project(getCamera());
       if (tmp.z > 1) continue; // behind the camera
       const sx = r.left + ((tmp.x + 1) / 2) * r.width;
       const sy = r.top + ((1 - tmp.y) / 2) * r.height;
@@ -56,10 +58,13 @@ export function attachDrag({ camera, domElement, controls, handles, getState, on
     if (ev.button !== 0 || active.size > 1) return; // never grab a handle mid-gesture
     const obj = pick(ev);
     if (!obj) return;
-    plane.set(new THREE.Vector3(0, 0, 1), -obj.position.z);
+    const look = getCamera().getWorldDirection(new THREE.Vector3());
+    const dp = dragPlane([look.x, look.y, look.z]);
+    const n = new THREE.Vector3(...dp.normal);
+    plane.setFromNormalAndCoplanarPoint(n, obj.position);
     if (!raycaster.ray.intersectPlane(plane, hit)) return;
     const s = getState();
-    drag = { pointerId: ev.pointerId, kind: obj.userData.kind, start: hit.clone(), bottom: { ...s.bottom }, top: { ...s.top } };
+    drag = { pointerId: ev.pointerId, kind: obj.userData.kind, start: hit.clone(), plane: dp, bottom: { ...s.bottom }, top: { ...s.top } };
     // Keep OrbitControls enabled so it still tracks this pointer (needed for a
     // later two-finger pinch); only suppress its rotation while dragging.
     controls.enableRotate = false;
@@ -77,7 +82,7 @@ export function attachDrag({ camera, domElement, controls, handles, getState, on
     setRay(ev);
     if (!raycaster.ray.intersectPlane(plane, hit)) return;
     const s = getState();
-    const d = fromVisualDelta(hit.x - drag.start.x, hit.y - drag.start.y, s.magnification);
+    const d = dragDelta(drag.plane, [hit.x - drag.start.x, hit.y - drag.start.y], s.magnification);
     const move = (p) => ({ dx: clampOffset(p.dx + d.dx), dy: clampOffset(p.dy + d.dy) });
     const next = { bottom: drag.bottom, top: drag.top };
     if (drag.kind === 'top' || drag.kind === 'mid') next.top = move(drag.top);

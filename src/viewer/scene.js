@@ -8,6 +8,7 @@ import { SPEC } from '../config.js';
 import { fmt, fmtLimit, fmtUp, fmtAgainst } from '../format.js';
 import { fcfHTML, fmtNote } from '../fcf.js';
 import { toVisualXY, visualZoneRadius } from '../exaggeration.js';
+import { viewPose, effectiveDistance } from '../views.js';
 import { COLORS, fatLine, circlePoints, arrowHead, label, disposeObject, setLineResolution } from './primitives.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z-up, matching the drawing frame
@@ -43,6 +44,11 @@ export function phoneHoleCamera(f = PHONE_HOLE_FRAMING) {
 export const CALLOUT_PX = { zone: [96, 0], axis: [100, 18] };
 export const CALLOUT_BLEND = { near: 60, far: 130 }; // camera-to-target distance
 export const DEFAULT_CAMERA = Object.freeze({ position: [-22, -88, 92], target: [47, 30, 0] });
+// Named ortho views: centred on the hole mid-depth, showing ±VIEW_HALF mm vertically.
+export const VIEW_TARGET = Object.freeze([TP.x, TP.y, H / 2]);
+export const VIEW_HALF = { desktop: 26, phone: 21 };
+const VIEW_DIST = 120; // camera distance for ortho views (only affects clipping)
+const SNAP_MS = 420;
 
 export function createViewer(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -55,8 +61,15 @@ export function createViewer(container) {
   container.appendChild(labelRenderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 2000);
+  const persp = new THREE.PerspectiveCamera(38, 1, 0.5, 2000);
+  const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -2000, 4000);
+  let camera = persp; // the active camera (persp or ortho)
   const controls = new OrbitControls(camera, renderer.domElement);
+  let viewName = '3d'; // last snapped view; null once the user orbits away
+  let anim = null;
+  controls.addEventListener('start', () => { if (!anim) { viewName = null; onViewChange(); } });
+  let viewListeners = [];
+  const onViewChange = () => viewListeners.forEach((f) => f({ view: viewName, ortho: camera === ortho }));
   controls.enableDamping = true;
   controls.dampingFactor = 0.12;
   resetCamera();
@@ -84,20 +97,105 @@ export function createViewer(container) {
   const handles = buildHandles();
   scene.add(handles.group);
 
-  function resetCamera(view = DEFAULT_CAMERA) {
+  const tanHalf = () => Math.tan((persp.fov * Math.PI) / 360);
+  const aspect = () => (container.clientWidth || 1) / (container.clientHeight || 1);
+  function fitOrtho(halfH) {
+    ortho.top = halfH; ortho.bottom = -halfH;
+    ortho.left = -halfH * aspect(); ortho.right = halfH * aspect();
+    ortho.updateProjectionMatrix();
+  }
+  /** Switch projection keeping the current pose and apparent size. */
+  function setProjection(kind) {
+    const want = kind === 'ortho' ? ortho : persp;
+    if (want === camera) return;
+    const dist = camera.position.distanceTo(controls.target);
+    if (want === ortho) {
+      fitOrtho(dist * tanHalf()); ortho.zoom = 1;
+      ortho.position.copy(persp.position); ortho.up.copy(persp.up);
+    } else {
+      const halfH = ortho.top / ortho.zoom;
+      const dir = ortho.position.clone().sub(controls.target).normalize();
+      persp.position.copy(controls.target).addScaledVector(dir, halfH / tanHalf());
+    }
+    want.updateProjectionMatrix();
+    camera = want;
+    controls.object = camera;
+    controls.update();
+    layoutKey = '';
+    onViewChange();
+  }
+  /** Smoothly move the camera to `pose` ({position, target}); for ortho also to a visible half-height. */
+  function animateTo(pose, { halfH = null, ms = SNAP_MS } = {}) {
+    const p0 = camera.position.clone(), t0 = controls.target.clone();
+    const p1 = new THREE.Vector3(...pose.position), t1 = new THREE.Vector3(...pose.target);
+    const d0 = p0.clone().sub(t0), d1 = p1.clone().sub(t1);
+    const l0 = d0.length(), l1 = d1.length();
+    const u0 = d0.normalize(), u1 = d1.normalize();
+    const z0 = camera === ortho ? ortho.zoom : 1, z1 = camera === ortho && halfH ? ortho.top / halfH : z0;
+    const start = performance.now();
+    anim = (now) => {
+      const k = Math.min(1, (now - start) / ms), e = k * k * (3 - 2 * k);
+      const u = u0.clone().lerp(u1, e);
+      if (u.lengthSq() < 1e-8) u.copy(u1);
+      u.normalize();
+      controls.target.lerpVectors(t0, t1, e);
+      camera.position.copy(controls.target).addScaledVector(u, l0 + (l1 - l0) * e);
+      if (camera === ortho) { ortho.zoom = z0 + (z1 - z0) * e; ortho.updateProjectionMatrix(); }
+      controls.update();
+      layoutKey = '';
+      if (k >= 1) anim = null;
+    };
+    if (ms <= 0) anim(performance.now() + 1);
+  }
+  // Phones: centre the part in the free band between the badge + view row and
+  // the bottom HUD, not in the middle of the canvas (which the overlay covers).
+  function freeAreaTarget(name, halfH) {
+    const t = [...VIEW_TARGET];
+    if (!isPhone()) return t;
+    const cr = renderer.domElement.getBoundingClientRect();
+    const rb = (id) => document.getElementById(id)?.getBoundingClientRect();
+    const row = rb('view-row'), hud = rb('hud-br'), mag = rb('mag-badge');
+    if (!row || !cr.height) return t;
+    const freeTop = row.bottom - cr.top;
+    const freeBot = Math.min(...[mag].filter((r) => r && r.height).map((r) => r.top - cr.top), cr.height); void hud;
+    const px = (freeTop + freeBot) / 2 - cr.height / 2; // + = content should move down
+    const mm = (px * 2 * halfH) / cr.height;
+    const up = name === 'top' ? [0, 1, 0] : [0, 0, 1]; // screen-up in world for that view
+    return t.map((v, i) => v + up[i] * mm);
+  }
+  /** Named view: 'top' | 'front' | 'side' (ortho) or '3d' (default perspective orbit). */
+  function setView(name, { ms = SNAP_MS } = {}) {
+    if (name === '3d') {
+      setProjection('persp');
+      animateTo(isPhone() ? phoneHoleCamera() : DEFAULT_CAMERA, { ms });
+    } else {
+      setProjection('ortho');
+      const halfH = isPhone() ? VIEW_HALF.phone : VIEW_HALF.desktop;
+      animateTo(viewPose(name, freeAreaTarget(name, halfH), VIEW_DIST), { halfH, ms });
+    }
+    viewName = name;
+    onViewChange();
+  }
+  function resetCamera(view = DEFAULT_CAMERA, name = view === DEFAULT_CAMERA ? '3d' : null) {
+    anim = null;
+    setProjection('persp');
     camera.position.set(...view.position);
     controls.target.set(...view.target);
     controls.update();
+    viewName = name;
+    onViewChange();
   }
-  const zoomToHole = () => resetCamera(isPhone() ? phoneHoleCamera() : HOLE_CAMERA);
+  // On phones the hole close-up IS the default 3D view.
+  const zoomToHole = () => resetCamera(isPhone() ? phoneHoleCamera() : HOLE_CAMERA, isPhone() ? '3d' : null);
 
   function resize() {
     const w = container.clientWidth;
     const h = container.clientHeight;
     renderer.setSize(w, h);
     labelRenderer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    persp.aspect = w / h;
+    persp.updateProjectionMatrix();
+    if (camera === ortho) fitOrtho(ortho.top); else ortho.updateProjectionMatrix();
     setLineResolution(w, h);
   }
   new ResizeObserver(resize).observe(container);
@@ -131,6 +229,7 @@ export function createViewer(container) {
   const _n = new THREE.Vector3();
   const _f = new THREE.Vector3();
   let layoutKey = '';
+  let tpLabel = null;
   function layoutCallouts() {
     camera.updateMatrixWorld();
     const w = renderer.domElement.clientWidth;
@@ -139,7 +238,7 @@ export function createViewer(container) {
     if (key === layoutKey || !w || !h) return;
     layoutKey = key;
     let unsized = false;
-    const dist = camera.position.distanceTo(controls.target);
+    const dist = effectiveDistance({ ortho: camera === ortho, distance: camera.position.distanceTo(controls.target), halfHeight: ortho.top, zoom: ortho.zoom, fovDeg: persp.fov });
     const t = THREE.MathUtils.smoothstep(dist, CALLOUT_BLEND.near, CALLOUT_BLEND.far); // 0 near .. 1 far
     // verdict badge rect in canvas px (labels are kept out from under it)
     const cr = renderer.domElement.getBoundingClientRect();
@@ -149,9 +248,11 @@ export function createViewer(container) {
       const b = el.getBoundingClientRect();
       return { l: b.left - cr.left, r: b.right - cr.left, t: b.top - cr.top, b: b.bottom - cr.top };
     };
-    const badge = box('status-badge'); // labels drop below it
+    const sb = box('status-badge'), vr = box('view-row');
+    const badge = sb && vr ? { l: Math.min(sb.l, vr.l), r: Math.max(sb.r, vr.r), t: Math.min(sb.t, vr.t), b: Math.max(sb.b, vr.b) } : sb || vr; // labels drop below the badge + view row
     const mag = box('mag-badge'); // labels lift above it
     const chip = box('hud-br'); // phone-only "Show drawing" button + FCF chip (bottom-right)
+    const placed = [];
     dynamic.traverse((o) => {
       const c = o.userData.callout;
       if (!c) return;
@@ -195,9 +296,72 @@ export function createViewer(container) {
       _n.unproject(camera);
       o.position.copy(_n);
       c.leader.geometry.setPositions([_a.x, _a.y, _a.z, _n.x, _n.y, _n.z]);
+      placed.push({ o, c, sx, sy, l: sx - cx * ew, t: sy - cy * eh, ew, eh, anchor: _a.clone() });
     });
+    // Ortho views: the drawing's "True position" note (fixed world point) can land
+    // under the badge / view row / exaggeration badge; hide it there instead.
+    if (!tpLabel) staticGroup.traverse((o) => { if (o.element?.classList?.contains('tp-label')) tpLabel = o; });
+    if (tpLabel) {
+      let hide = false;
+      if (camera === ortho && tpLabel.element.offsetWidth) {
+        tpLabel.getWorldPosition(_n).project(camera);
+        const ew = tpLabel.element.offsetWidth, eh = tpLabel.element.offsetHeight;
+        const l = ((_n.x + 1) / 2) * w - ew / 2, t = ((1 - _n.y) / 2) * h - eh / 2;
+        hide = [badge, mag, chip].some((r) => r && l < r.r && l + ew > r.l && t < r.b && t + eh > r.t);
+      }
+      tpLabel.element.style.visibility = hide ? 'hidden' : '';
+    }
+    // Ortho views can bring the zone and axis anchors together on screen (top
+    // view: the axis is a point inside the zone); stack the later label below.
+    if (camera === ortho && placed.length > 1) {
+      placed.sort((p, q) => p.t - q.t);
+      for (let i = 1; i < placed.length; i++) {
+        const p = placed[i - 1], q = placed[i];
+        const overlap = q.l < p.l + p.ew && p.l < q.l + q.ew && q.t < p.t + p.eh + 4 && p.t < q.t + q.eh;
+        if (!overlap) continue;
+        const dy = p.t + p.eh + 4 - q.t;
+        const hx = (r, o) => r && o.l < r.r && o.l + o.ew > r.l;
+        const floor = Math.min(h - 4, ...[mag, chip].filter((r) => hx(r, q) && r.t > q.t).map((r) => r.t - 4));
+        const ceil = Math.max(4, ...[badge].filter((r) => hx(r, p) && r.b < p.t + p.eh).map((r) => r.b + 4));
+        // push the lower label down if it fits, else lift the upper one
+        const mover = q.t + dy + q.eh <= floor || p.t - dy < ceil ? q : p;
+        const shift = mover === q ? dy : -dy;
+        mover.sy += shift; mover.t += shift;
+        _n.set((mover.sx / w) * 2 - 1, 1 - (mover.sy / h) * 2, 0).unproject(camera);
+        mover.o.position.copy(_n);
+        mover.c.leader.geometry.setPositions([mover.anchor.x, mover.anchor.y, mover.anchor.z, _n.x, _n.y, _n.z]);
+      }
+    }
+    // Ortho views: TOP/BOTTOM tags go above/below their handle along the
+    // SCREEN vertical (in top view both handles coincide), "slide" to the right.
+    if (camera === ortho) {
+      // Tags sit to the LEFT of their handle (callouts are on the right); in top
+      // view, where both handles coincide, TOP goes up and BOTTOM down as well.
+      _a.setFromMatrixColumn(camera.matrixWorld, 1).normalize(); // screen up (world)
+      _f.setFromMatrixColumn(camera.matrixWorld, 0).normalize(); // screen right (world)
+      const pxw = (2 * (ortho.top / ortho.zoom)) / h; // world mm per CSS px
+      const lookDown = Math.abs(camera.getWorldDirection(_n).z) > 0.9;
+      const [tl, bl, ml] = [handles.labels[0], handles.labels[1], handles.midLabel];
+      const off = (lbl, side) => {
+        const ew = lbl.element.offsetWidth || 120, eh = lbl.element.offsetHeight || 16;
+        // top view: both tags stacked below-left (the "True position" note sits above-left)
+        const up = lookDown ? (side > 0 ? -(eh / 2 + 2) : -(eh * 1.5 + 6)) : 0;
+        return _f.clone().multiplyScalar(-(ew / 2 + 20) * pxw).add(_a.clone().multiplyScalar(up * pxw));
+      };
+      tl.userData.base = off(tl, 1);
+      bl.userData.base = off(bl, -1);
+      ml.userData.base = _f.clone().multiplyScalar(((ml.element.offsetWidth || 30) / 2 + 16) * pxw);
+    } else {
+      handles.labels[0].userData.base = new THREE.Vector3(0, 0, 2.6);
+      handles.labels[1].userData.base = new THREE.Vector3(0, 0, -2.8);
+      handles.midLabel.userData.base = new THREE.Vector3(2.6, 0, 0);
+    }
+    for (const lbl of [...handles.labels, handles.midLabel]) lbl.position.copy(lbl.userData.base);
     // Phones: keep the TOP/BOTTOM readout tags inside the 3D view.
-    if (isPhone()) {
+    // Ortho views (any device) also keep them below the badge + view row and
+    // above the bottom HUD (exaggeration badge, phone FCF chip / drawing button).
+    if (isPhone() || camera === ortho) {
+      const orth = camera === ortho;
       for (const lbl of handles.labels) {
         lbl.position.copy(lbl.userData.base);
         const ew = lbl.element.offsetWidth, eh = lbl.element.offsetHeight;
@@ -207,7 +371,14 @@ export function createViewer(container) {
         const sx = ((_n.x + 1) / 2) * w, sy = ((1 - _n.y) / 2) * h;
         const left = sx - ew / 2, top = sy - eh / 2;
         const dx = Math.max(0, 4 - left) - Math.max(0, left + ew - (w - 4));
-        const dy = Math.max(0, 4 - top) - Math.max(0, top + eh - (h - 4));
+        let topMin = 4, botMax = h - 4;
+        if (orth) {
+          const hx = (r) => r && left + dx < r.r && left + dx + ew > r.l;
+          if (hx(badge)) topMin = Math.max(topMin, badge.b + 4);
+          for (const r of [mag, chip]) if (hx(r) && r.t > top + eh / 2) botMax = Math.min(botMax, r.t - 4); // only HUD below the tag
+          for (const r of [mag]) if (hx(r) && r.b < top + eh / 2) topMin = Math.max(topMin, r.b + 4); // desktop: badge stack above
+        }
+        const dy = Math.max(0, topMin - top) - Math.max(0, top + eh - botMax);
         if (!dx && !dy) continue;
         _n.x += (2 * dx) / w;
         _n.y -= (2 * dy) / h;
@@ -218,7 +389,8 @@ export function createViewer(container) {
     if (unsized) layoutKey = '';
   }
 
-  function frame() {
+  function frame(now) {
+    if (anim) anim(now);
     controls.update();
     layoutCallouts();
     renderer.render(scene, camera);
@@ -227,7 +399,12 @@ export function createViewer(container) {
   }
   requestAnimationFrame(frame);
 
-  return { scene, camera, renderer, controls, handles, update, setDrawing, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement };
+  return {
+    scene, renderer, controls, handles, update, setDrawing, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement,
+    get camera() { return camera; },
+    setView, setProjection, onView: (f) => { viewListeners.push(f); },
+    get view() { return { view: viewName, ortho: camera === ortho, animating: !!anim }; },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +673,7 @@ function buildHandles() {
   const topLabel = label('TOP z=10', 'handle-label', [0, 0, 2.6]);
   const botLabel = label('BOTTOM z=0', 'handle-label', [0, 0, -2.8]);
   const midLabel = label('slide', 'handle-label muted', [2.6, 0, 0]);
+  midLabel.userData.base = midLabel.position.clone();
   top.add(topLabel);
   bottom.add(botLabel);
   mid.add(midLabel);
@@ -513,5 +691,5 @@ function buildHandles() {
     topLabel.element.textContent = txt('TOP z=10', result.top);
     botLabel.element.textContent = txt('BOTTOM z=0', result.bottom);
   }
-  return { group, top, bottom, mid, list: [top, bottom, mid], labels: [topLabel, botLabel], place };
+  return { group, top, bottom, mid, list: [top, bottom, mid], labels: [topLabel, botLabel], midLabel, place };
 }

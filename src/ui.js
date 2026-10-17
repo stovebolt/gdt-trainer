@@ -19,7 +19,7 @@ export const ZERO_REASON = '⌀0 is only meaningful at MMC or LMC, where bonus s
 const BADGE = { IN: '✔ IN', OUT: '✘ OUT', REJECT_SIZE: '✘ REJECT: size', INVALID_TOL: '✘ INVALID' };
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onSize, onModifier, onStated, onLock, onResetCamera, onZoomHole, clampOffset }) {
+export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onSize, onModifier, onStated, onLock, onTiltLock, onResetCamera, onZoomHole, clampOffset }) {
   root.innerHTML = template();
   const $ = (sel) => root.querySelector(sel);
 
@@ -58,6 +58,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
       else msg('');
     });
   }
+  $('#tilt-lock-btn').addEventListener('click', () => onTiltLock($('#tilt-lock-btn').getAttribute('aria-pressed') !== 'true'));
   $('#lock-btn').addEventListener('click', () => onLock($('#lock-btn').getAttribute('aria-pressed') !== 'true'));
   $('#n-stated').addEventListener('change', (e) => {
     const v = Number(e.target.value);
@@ -86,6 +87,9 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     if (document.activeElement !== $('#n-stated')) $('#n-stated').value = lastStated;
     $('#shrink-note').style.visibility = res.shrinkNote ? 'visible' : 'hidden';
     $('#lock-btn').setAttribute('aria-pressed', String(!!state.lock));
+    $('#tilt-lock-btn').setAttribute('aria-pressed', String(!!state.tiltLock));
+    $('#preset-note').textContent = res.presetNote || '\u00a0';
+    $('#preset-note').style.visibility = res.presetNote ? 'visible' : 'hidden';
     for (const m of ['RFS', 'MMC', 'LMC']) $(`#mod-${m.toLowerCase()}`).setAttribute('aria-pressed', String(state.modifier === m));
     const TOL = res.tolerance; // allowed (stated + bonus)
     const R = res.radius;
@@ -277,6 +281,7 @@ function template() {
       <span class="seg" role="group" aria-label="Material condition"><button id="mod-rfs" type="button" aria-pressed="true">RFS</button><button id="mod-mmc" type="button" aria-pressed="false">MMC ${MMC_SYM}</button><button id="mod-lmc" type="button" aria-pressed="false">LMC ${LMC_SYM}</button></span>
       <label class="stated"><span>Stated ⌀</span><input type="number" id="n-stated" min="0" max="1" step="0.001"/></label>
       <button id="lock-btn" type="button" class="lock-btn" aria-pressed="false" title="Endpoints cannot leave the allowed zone (bonus included)">Lock in tolerance</button>
+      <button id="tilt-lock-btn" type="button" class="lock-btn" aria-pressed="false" title="Both endpoints move together: the current tilt is frozen (never straightened)">Lock tilt</button>
     </div>
     <div id="mc-msg" class="mc-msg" role="status"></div>
     <div class="muted small">Size limits ${SIZE_LIMITS} (MMC ⌀${fmt(SPEC.hole.mmc)}). Outside them the part is <b>REJECT: size</b>, whatever the axis. At MMC, bonus = actual size − ${fmt(SPEC.hole.mmc)}; at LMC, bonus = ${fmt(SPEC.hole.lmc)} − actual size.</div>
@@ -303,6 +308,7 @@ function template() {
   <section>
     <h2>Presets</h2>
     <div class="presets">${PRESETS.map((p) => `<button data-preset="${p.id}">${p.label}</button>`).join('')}</div>
+    <div id="preset-note" class="muted small preset-note" style="visibility:hidden">\u00a0</div>
   </section>
 
   <section>
@@ -316,6 +322,6 @@ function template() {
     <label class="check phone-only"><input type="checkbox" id="drawing"/> Show drawing (datums, basic 35/30, true position, ⌀10.1 callout, FCF leader)</label>
     <label class="check"><input type="checkbox" id="xray"/> X-ray plate (see the axis inside the hole)</label>
     <button id="reset-cam">Reset camera</button> <button id="zoom-hole">Zoom to hole</button>
-    <p class="muted small">3D view: drag the <b>TOP</b> / <b>BOTTOM</b> spheres to tilt, the white <b>slide</b> sphere to shift. Left-drag elsewhere to orbit, right-drag to pan, wheel to zoom.</p>
+    <p class="muted small">3D view: drag the <b>TOP</b> / <b>BOTTOM</b> spheres to tilt, the white <b>slide</b> sphere to shift. Left-drag elsewhere to orbit, right-drag to pan, wheel to zoom. View row: <b>Top Z / Front Y / Side X</b> snap to an ortho view (drags move X/Y in top view, X in front view, Y in side view); <b>3D</b> returns to the perspective orbit.</p>
   </section>`;
 }

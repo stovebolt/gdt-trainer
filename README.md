@@ -57,7 +57,7 @@ Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
 - **Sliders and number boxes.** Set the top and bottom dx/dy precisely
   (±0.4 mm, 0.001 steps).
 - **Presets:** Centered (in), Tilted ±0.1 (in), Tilted ±0.13 (out),
-  Shifted 0.125 (in, on boundary), Shifted 0.126 (out), X 0.1 + Y 0.1 (out).
+  Shifted 0.125 (in, on boundary), Shifted 0.126 (out), Diagonal (2D trap) (out: inside the band in front/side views, outside the round zone).
 - **Readout.** For each endpoint it shows dx, dy, r vs 0.125, 2r vs ⌀0.25 and
   PASS/FAIL. The overall **position = 2 × (worst endpoint r)** is reported as
   a **diameter** and compared with the **allowed** tolerance (⌀0.25 at
@@ -184,3 +184,20 @@ display its result.
   Orbit to a higher angle, or use the inset or sliders.
 - Each endpoint offset is limited to ±0.4 mm per axis, which keeps the
   exaggerated hole inside the plate.
+
+## Views and Lock tilt (ZONE.md §11)
+
+- **View row** in the 3D view: Top Z, Front Y and Side X snap smoothly to an
+  orthographic view. 3D returns to the default perspective orbit, and
+  Ortho/Persp switches the projection.
+  - Handles can be dragged in every view: top view moves X/Y, front view X,
+    side view Y.
+  - On phones every button is at least 40 px.
+- **Lock tilt** (off by default): both endpoints move together, so the current
+  tilt is frozen. Turning it on never moves the axis.
+  - It combines with **Lock in tolerance**: the end that would leave the zone
+    first limits the move.
+- **For lessons:**
+  - `gdt.setTiltLock(true)`, `gdt.setLock(true)`, `gdt.setView('top')`,
+    `gdt.setProjection('ortho')`.
+  - URL: `?tiltlock=1&lock=1&view=top`.

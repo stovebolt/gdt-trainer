@@ -217,3 +217,74 @@ export function shrinkCausedOut({ rBottom, rTop, allowedBefore, allowedNow }) {
   const r = Math.max(rBottom, rTop);
   return r <= allowedBefore / 2 + EPS && r > allowedNow / 2 + EPS;
 }
+
+// ---------------------------------------------------------------------------
+// "Lock tilt" (Sally): both endpoints move together by the same delta, so the
+// tilt (top − bottom) stays exactly what it was when the lock was turned on.
+// Turning it on never moves the axis.
+// ---------------------------------------------------------------------------
+
+/**
+ * Translate both endpoints by `delta` (mm). Pure.
+ * - Box: each endpoint offset stays within ±maxDev per axis.
+ * - allowed == null (tolerance lock off): only the box applies.
+ * - allowed given (tolerance lock on): each endpoint must satisfy r <= R_i,
+ *   with R_i = allowed/2 − eps if it starts inside, or its current r if it
+ *   starts outside (it may only come inward). The translation is the point of
+ *   that feasible set closest to `delta` (a projection), so whichever end would
+ *   leave first limits the move, both ends move by the same clamped delta, and
+ *   sideways drags slide along the boundary instead of sticking.
+ * - Results are on the `grid` (0.001 mm); the tilt is preserved exactly on it.
+ */
+export function translateAxis({ bottom, top, delta, allowed = null, eps = LOCK_EPS, grid = 1e-3, maxDev = Infinity }) {
+  assertFinite({ bdx: bottom.dx, bdy: bottom.dy, tdx: top.dx, tdy: top.dy, ddx: delta.dx, ddy: delta.dy });
+  const g = 1 / grid;
+  const q = (v) => Math.round(v * g) / g;
+  const pts = [bottom, top];
+  const rMax = allowed == null ? Infinity : Math.max(0, allowed / 2 - eps);
+  const R = pts.map((p) => { const r = Math.hypot(p.dx, p.dy); return r <= rMax ? rMax : r; });
+  const ok = (t) => pts.every((p, i) => {
+    const x = p.dx + t[0], y = p.dy + t[1];
+    return Math.abs(x) <= maxDev + 1e-12 && Math.abs(y) <= maxDev + 1e-12 && (R[i] === Infinity || Math.hypot(x, y) <= R[i] + 1e-12);
+  });
+  const D = [delta.dx, delta.dy];
+  let T = [0, 0];
+  if (ok(D)) T = D;
+  else {
+    const cands = [];
+    const boxed = (t) => [0, 1].map((k) => Math.max(...pts.map((p) => -maxDev - (k ? p.dy : p.dx)), Math.min(...pts.map((p) => maxDev - (k ? p.dy : p.dx)), t[k])));
+    cands.push(boxed(D));
+    pts.forEach((p, i) => {
+      if (R[i] === Infinity) return;
+      const c = [-p.dx, -p.dy], v = [D[0] - c[0], D[1] - c[1]], l = Math.hypot(...v);
+      const k = l > R[i] ? R[i] / l : 1;
+      cands.push([c[0] + v[0] * k, c[1] + v[1] * k]);
+    });
+    if (R[0] !== Infinity && R[1] !== Infinity) { // the two boundary circles' intersections
+      const [c0, c1] = pts.map((p) => [-p.dx, -p.dy]);
+      const dx = c1[0] - c0[0], dy = c1[1] - c0[1], d = Math.hypot(dx, dy);
+      if (d > 1e-12 && d <= R[0] + R[1] && d >= Math.abs(R[0] - R[1])) {
+        const a = (R[0] ** 2 - R[1] ** 2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, R[0] ** 2 - a * a));
+        const mx = c0[0] + (a * dx) / d, my = c0[1] + (a * dy) / d;
+        cands.push([mx + (h * dy) / d, my - (h * dx) / d], [mx - (h * dy) / d, my + (h * dx) / d]);
+      }
+    }
+    let lo = 0, hi = 1; // fallback: largest t with t·D feasible
+    for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (ok([D[0] * m, D[1] * m])) lo = m; else hi = m; }
+    cands.push([D[0] * lo, D[1] * lo]);
+    let best = Infinity;
+    for (const c of cands) { const dd = Math.hypot(c[0] - D[0], c[1] - D[1]); if (ok(c) && dd < best) { best = dd; T = c; } }
+  }
+  // onto the grid, staying feasible: nearest feasible of the 4 floor/ceil combos (else no move)
+  if (!(Number.isInteger(Math.round(T[0] * g * 1e6) / 1e6) && Number.isInteger(Math.round(T[1] * g * 1e6) / 1e6) && ok([q(T[0]), q(T[1])]))) {
+    let best = Infinity, pick = [0, 0];
+    for (const fx of [Math.floor, Math.ceil]) for (const fy of [Math.floor, Math.ceil]) {
+      const c = [fx(T[0] * g + 1e-9) / g, fy(T[1] * g + 1e-9) / g];
+      const dd = Math.hypot(c[0] - T[0], c[1] - T[1]);
+      if (ok(c) && dd < best) { best = dd; pick = c; }
+    }
+    T = pick;
+  } else T = [q(T[0]), q(T[1])];
+  const mv = (p) => ({ dx: q(p.dx + T[0]) || 0, dy: q(p.dy + T[1]) || 0 });
+  return { bottom: mv(bottom), top: mv(top), delta: { dx: T[0] || 0, dy: T[1] || 0 } };
+}

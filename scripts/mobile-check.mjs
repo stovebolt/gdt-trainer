@@ -297,6 +297,80 @@ for (const name of DEVICES) {
     await page.waitForTimeout(300);
   }
 
+  // ---- Views, Lock tilt and the 2D-trap preset (touch) ----------------------
+  {
+    const tapSel = async (sel) => { const b = page.locator(sel); await b.scrollIntoViewIfNeeded(); const bb = await b.boundingBox(); await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2); await page.waitForTimeout(120); return bb; };
+    const home = () => page.evaluate(() => { window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    const st = () => page.evaluate(() => JSON.parse(JSON.stringify({ b: window.gdt.state.bottom, t: window.gdt.state.top, v: window.gdt.view(), verdict: window.gdt.result().verdict })));
+    const overlapCheck = () => page.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect();
+      const shown = (e) => e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && r(e).width > 0;
+      const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+      const cv = r(window.gdt._debug.canvas);
+      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #hud-br, #view-row')].filter(shown);
+      const name = (e) => e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0];
+      const issues = [];
+      for (const e of items) { const b = r(e); if (b.left < cv.left - 0.5 || b.right > cv.right + 0.5 || b.top < cv.top - 0.5 || b.bottom > cv.bottom + 0.5) issues.push(name(e) + ' off-view'); }
+      for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) { const [a, b] = [items[i], items[j]]; if (a.id === 'status-badge' && b.id === 'mag-badge') continue; if (hit(r(a), r(b))) issues.push(`${name(a)}~${name(b)}`); }
+      // handle spheres must not sit under the overlay controls (they must stay grabbable)
+      const cam = window.gdt._debug.camera, hv = window.gdt._debug.handles;
+      for (const k of ['top', 'bottom']) {
+        const v = hv[k].position.clone().project(cam); const x = cv.left + (v.x + 1) / 2 * cv.width, y = cv.top + (1 - v.y) / 2 * cv.height;
+        if (x < cv.left || x > cv.right || y < cv.top || y > cv.bottom) issues.push(k + ' handle off-view');
+        for (const id of ['view-row', 'status-badge', 'hud-br', 'mag-badge']) { const b = document.getElementById(id); if (shown(b)) { const q = r(b); if (x > q.left - 6 && x < q.right + 6 && y > q.top - 6 && y < q.bottom + 6) issues.push(`${k} handle under #${id}`); } }
+      }
+      const fonts = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label')].filter(shown).map((e) => parseFloat(getComputedStyle(e).fontSize));
+      return { issues, minFont: Math.min(...fonts) };
+    });
+    await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setSize(10.1); window.gdt.applyPreset('centered'); });
+    await home(); await page.waitForTimeout(300);
+    const btns = await page.evaluate(() => [...document.querySelectorAll('#view-row button')].map((b) => { const q = b.getBoundingClientRect(); return { t: b.innerText, w: Math.round(q.width), h: Math.round(q.height) }; }));
+    check('view row (Top Z / Front Y / Side X / 3D / Ortho) in the 3D view, every button >= 40px', btns.length === 5 && btns.every((b) => b.w >= 40 && b.h >= 40), btns.map((b) => `${b.t} ${b.w}x${b.h}`).join(', '));
+    const expect = {
+      top: { k: 'top', dx: 40, dy: -30, ok: (a, b) => b.t.dx > a.t.dx + 0.02 && b.t.dy > a.t.dy + 0.02 && b.b.dx === a.b.dx, what: 'TOP moves +X/+Y' },
+      front: { k: 'bottom', dx: 40, dy: -30, ok: (a, b) => b.b.dx > a.b.dx + 0.02 && b.b.dy === a.b.dy && b.t.dx === a.t.dx, what: 'BOTTOM moves in X only' },
+      side: { k: 'top', dx: 40, dy: -30, ok: (a, b) => b.t.dy > a.t.dy + 0.02 && b.t.dx === a.t.dx && b.b.dy === a.b.dy, what: 'TOP moves in Y only' },
+    };
+    for (const v of ['top', 'front', 'side']) {
+      await page.evaluate(() => window.gdt.applyPreset('diag-out'));
+      await home();
+      await tapSel(`#view-row [data-view="${v}"]`);
+      await home(); await page.waitForTimeout(700);
+      const s0 = await st();
+      const ov = await overlapCheck();
+      check(`view ${v} (tap): ortho snap; labels/handles in view, readable, nothing overlaps`, s0.v.view === v && s0.v.ortho && ov.issues.length === 0 && ov.minFont >= 10, `${JSON.stringify(s0.v)} ${ov.issues.join(', ')} font ${ov.minFont}`);
+      if (v === 'top') await page.screenshot({ path: `${OUT}/${slug(name)}-view-top-diag-${TAG}.png` });
+      if (v === 'front') await page.screenshot({ path: `${OUT}/${slug(name)}-view-front-${TAG}.png` });
+      await page.evaluate(() => window.gdt.applyPreset('centered')); await page.waitForTimeout(250);
+      const e = expect[v];
+      const a = await st();
+      const h = await handleXY(e.k);
+      await drag1(h.x, h.y, e.dx, e.dy);
+      const b = await st();
+      check(`view ${v}: touch drag of ${e.k.toUpperCase()} — ${e.what}`, e.ok(a, b), `before ${JSON.stringify([a.b, a.t])} after ${JSON.stringify([b.b, b.t])}`);
+    }
+    await home();
+    await tapSel('#view-row [data-view="3d"]'); await page.waitForTimeout(700);
+    const s3 = await st();
+    check('3D button returns to the default perspective view', s3.v.view === '3d' && !s3.v.ortho, JSON.stringify(s3.v));
+    // Lock tilt (touch)
+    await page.evaluate(() => window.gdt.applyPreset('tilt-in'));
+    const a0 = await st();
+    const tbb = await tapSel('#tilt-lock-btn');
+    const hits = await page.evaluate(() => { const r = (e) => e.getBoundingClientRect(); const a = r(document.getElementById('tilt-lock-btn')); return ['#lock-btn', '#n-stated', '#mod-rfs', '#mod-mmc', '#mod-lmc'].filter((q) => { const b = r(document.querySelector(q)); return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; }); });
+    const a1 = await st();
+    check('Lock tilt toggle (tap) >= 40px, no overlap; turning it ON leaves both endpoints unchanged', tbb.height >= 40 && tbb.width >= 40 && hits.length === 0 && (await page.evaluate(() => window.gdt.state.tiltLock)) && JSON.stringify([a0.b, a0.t]) === JSON.stringify([a1.b, a1.t]), `${Math.round(tbb.width)}x${Math.round(tbb.height)} ${hits.join(',')}`);
+    await home(); await page.waitForTimeout(300);
+    const dif = (s) => [Math.round((s.t.dx - s.b.dx) * 1e6), Math.round((s.t.dy - s.b.dy) * 1e6)];
+    const ht = await handleXY('top');
+    await drag1(ht.x, ht.y, 30, 10);
+    const a2 = await st();
+    check('Lock tilt: touch drag of TOP translates both ends; top − bottom constant', JSON.stringify(dif(a2)) === JSON.stringify(dif(a0)) && a2.b.dx !== a0.b.dx, `${JSON.stringify(dif(a0))} → ${JSON.stringify(dif(a2))} ${JSON.stringify([a2.b, a2.t])}`);
+    await page.screenshot({ path: `${OUT}/${slug(name)}-tilt-lock-${TAG}.png` });
+    await page.evaluate(() => { window.gdt.setTiltLock(false); window.gdt.applyPreset('centered'); });
+    await home(); await page.waitForTimeout(300);
+  }
+
   // ---- Presets by tap: verdict matches -------------------------------------
   const presetResults = [];
   for (const [id, expectIn] of Object.entries(EXPECT)) {

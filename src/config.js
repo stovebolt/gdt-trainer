@@ -37,5 +37,6 @@ export const PRESETS = Object.freeze([
   { id: 'tilt-out', label: 'Tilted ±0.13 (out)', bottom: { dx: -0.13, dy: 0 }, top: { dx: 0.13, dy: 0 } },
   { id: 'edge-in', label: 'Shifted 0.125 (in, on boundary)', bottom: { dx: 0.125, dy: 0 }, top: { dx: 0.125, dy: 0 } },
   { id: 'edge-out', label: 'Shifted 0.126 (out)', bottom: { dx: 0.126, dy: 0 }, top: { dx: 0.126, dy: 0 } },
-  { id: 'diag-out', label: 'X 0.1 + Y 0.1 (out)', bottom: { dx: 0.1, dy: 0.1 }, top: { dx: 0.1, dy: 0.1 } },
+  // Sally's "2D trap": 0.10 in X and 0.10 in Y, no tilt -> r = 0.1414, position ⌀0.283 > ⌀0.25 (OUT at RFS)
+  { id: 'diag-out', label: 'Diagonal (2D trap)', bottom: { dx: 0.1, dy: 0.1 }, top: { dx: 0.1, dy: 0.1 }, note: 'Inside the band in front and side views, but outside the round zone.' },
 ]);

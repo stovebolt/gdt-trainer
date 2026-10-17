@@ -307,7 +307,7 @@ for (const name of DEVICES) {
       const shown = (e) => e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && r(e).width > 0;
       const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
       const cv = r(window.gdt._debug.canvas);
-      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #hud-br, #view-row')].filter(shown);
+      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #hud-br, #view-row, .lock-badge')].filter(shown);
       const name = (e) => e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0];
       const issues = [];
       for (const e of items) { const b = r(e); if (b.left < cv.left - 0.5 || b.right > cv.right + 0.5 || b.top < cv.top - 0.5 || b.bottom > cv.bottom + 0.5) issues.push(name(e) + ' off-view'); }
@@ -367,7 +367,29 @@ for (const name of DEVICES) {
     const a2 = await st();
     check('Lock tilt: touch drag of TOP translates both ends; top − bottom constant', JSON.stringify(dif(a2)) === JSON.stringify(dif(a0)) && a2.b.dx !== a0.b.dx, `${JSON.stringify(dif(a0))} → ${JSON.stringify(dif(a2))} ${JSON.stringify([a2.b, a2.t])}`);
     await page.screenshot({ path: `${OUT}/${slug(name)}-tilt-lock-${TAG}.png` });
-    await page.evaluate(() => { window.gdt.setTiltLock(false); window.gdt.applyPreset('centered'); });
+    // Lock badges (display-only) in the 3D view
+    const badges = () => page.evaluate(() => ['badge-tilt', 'badge-tol'].map((id) => { const e = document.getElementById(id); const q = e.getBoundingClientRect(); return { shown: !e.hidden && q.width > 0, font: parseFloat(getComputedStyle(e).fontSize), w: Math.round(q.width), h: Math.round(q.height) }; }));
+    let bg = await badges();
+    check('lock badge "Tilt locked" shown with only tilt lock on', bg[0].shown && !bg[1].shown, JSON.stringify(bg));
+    await tapSel('#lock-btn');
+    await home(); await page.waitForTimeout(400);
+    bg = await badges();
+    let ovb = await overlapCheck();
+    check('both locks on: "Tilt locked" + "Tolerance locked" readable (>= 10px), nothing overlaps (3D)', bg.every((x) => x.shown && x.font >= 10) && ovb.issues.length === 0, `${JSON.stringify(bg)} ${ovb.issues.join(', ')}`);
+    await page.screenshot({ path: `${OUT}/${slug(name)}-both-locks-${TAG}.png` });
+    for (const v of ['top', 'front', 'side']) {
+      await tapSel(`#view-row [data-view="${v}"]`); await home(); await page.waitForTimeout(700);
+      ovb = await overlapCheck();
+      check(`both locks on, ${v} view: badges + labels + handles + controls, nothing overlaps`, ovb.issues.length === 0, ovb.issues.join(', '));
+    }
+    await tapSel('#view-row [data-view="3d"]'); await home(); await page.waitForTimeout(700);
+    await tapSel('#tilt-lock-btn');
+    bg = await badges();
+    check('tilt lock off -> only "Tolerance locked"', !bg[0].shown && bg[1].shown, JSON.stringify(bg));
+    await tapSel('#lock-btn');
+    bg = await badges();
+    check('both locks off -> no lock badges', bg.every((x) => !x.shown), JSON.stringify(bg));
+    await page.evaluate(() => { window.gdt.setTiltLock(false); window.gdt.setLock(false); window.gdt.applyPreset('centered'); });
     await home(); await page.waitForTimeout(300);
   }
 

@@ -361,6 +361,19 @@ Off by default; the toggle reads **"Lock tilt"**.
     `gdt.setProjection('ortho'|'persp')`.
   - URL params: `?tiltlock=1&lock=1&view=top`.
 
+### Lock badges
+
+While a lock is on, a small teal badge shows it in the 3D view: **"Tilt
+locked"** and/or **"Tolerance locked"**, each only while its lock is on. They
+are stacked next to the view row (to its right on desktop, left of it on
+phones). The callouts and handle tags treat the badges as part of the
+badge/view-row band, so nothing overlaps them.
+
+They are **display-only**, not tap-to-unlock. Turning a lock off by accident
+mid-lesson would silently change behaviour, and a tappable badge would need a
+40 px touch target, which would no longer be small. The toggles in the panel
+remain the one place to change a lock.
+
 ### Diagonal (2D trap), Sally's preset
 
 The axis is offset 0.10 in X and 0.10 in Y with no tilt. r = √(0.1² + 0.1²) =

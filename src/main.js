@@ -133,6 +133,9 @@ function refresh() {
   btn.setAttribute('aria-pressed', String(state.drawing));
   btn.textContent = state.drawing ? 'Hide drawing' : 'Show drawing';
   last.shrinkNote = shrinkNoteFor(state, last);
+  // Display-only lock badges in the 3D view (shown only while each lock is on).
+  document.getElementById('badge-tilt').hidden = !state.tiltLock;
+  document.getElementById('badge-tol').hidden = !state.lock;
   last.presetNote = PRESETS.find((p) => p.note && ['bottom', 'top'].every((k) => p[k].dx === state[k].dx && p[k].dy === state[k].dy))?.note ?? '';
   ui.render(state, last);
 }

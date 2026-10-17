@@ -197,6 +197,8 @@ display its result.
   tilt is frozen. Turning it on never moves the axis.
   - It combines with **Lock in tolerance**: the end that would leave the zone
     first limits the move.
+  - While a lock is on, a small display-only badge ("Tilt locked" /
+    "Tolerance locked") shows it in the 3D view.
 - **For lessons:**
   - `gdt.setTiltLock(true)`, `gdt.setLock(true)`, `gdt.setView('top')`,
     `gdt.setProjection('ortho')`.

@@ -270,11 +270,12 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
     const shown = (e) => e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && r(e).width > 0 && e.closest('[style*="display: none"]') == null;
     const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
     const cv = r(window.gdt._debug.canvas);
-    const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #view-row')].filter(shown);
+    const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #view-row, .lock-badge')].filter(shown);
     const name = (e) => e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0];
     const issues = [];
     for (const e of items) { const b = r(e); if (b.left < cv.left - 0.5 || b.right > cv.right + 0.5 || b.top < cv.top - 0.5 || b.bottom > cv.bottom + 0.5) issues.push(name(e) + ' off-view'); }
-    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (hit(r(items[i]), r(items[j]))) issues.push(`${name(items[i])}~${name(items[j])}`);
+    const rr = (e) => { const q = r(e); return `[${Math.round(q.left)},${Math.round(q.top)} ${Math.round(q.width)}x${Math.round(q.height)}]`; };
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (hit(r(items[i]), r(items[j]))) issues.push(`${name(items[i])}${rr(items[i])}~${name(items[j])}${rr(items[j])}`);
     const minFont = Math.min(...[...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label')].filter(shown).map((e) => parseFloat(getComputedStyle(e).fontSize)));
     return { issues, minFont };
   });
@@ -336,7 +337,26 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   const b1 = await st();
   const rr = (p) => Math.hypot(p.dx, p.dy);
   ckV('Lock tilt + Lock in tolerance: the end that would leave first stops the move; tilt kept; IN', b1.verdict === 'IN' && JSON.stringify(dif(b1)) === JSON.stringify(dif(a0)) && Math.max(rr(b1.t), rr(b1.b)) > 0.12 && Math.max(rr(b1.t), rr(b1.b)) <= 0.125, { b: b1.b, t: b1.t, verdict: b1.verdict });
-  await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); });
+  // Lock badges in the 3D view: each shown only while its lock is on; no overlaps
+  const badges = () => page.evaluate(() => ['badge-tilt', 'badge-tol'].map((id) => { const e = document.getElementById(id); return { id, shown: !e.hidden && e.getBoundingClientRect().width > 0, text: e.innerText }; }));
+  let bg = await badges();
+  ckV('lock badges: "Tilt locked" + "Tolerance locked" both shown with both locks on', bg.every((x) => x.shown) && bg[0].text === 'Tilt locked' && bg[1].text === 'Tolerance locked', bg);
+  for (const v of ['3d', 'top', 'front']) {
+    await page.click(`#view-row [data-view="${v}"]`); await page.waitForTimeout(700);
+    const L = await labelsOk();
+    ckV(`lock badges (${v} view): nothing overlaps badges, labels or controls`, L.issues.length === 0, L);
+  }
+  await page.click('#view-row [data-view="3d"]'); await page.waitForTimeout(700);
+  await page.locator('#lock-btn').scrollIntoViewIfNeeded(); await page.click('#lock-btn');
+  bg = await badges();
+  ckV('lock badges: tolerance lock off -> only "Tilt locked"', bg[0].shown && !bg[1].shown, bg);
+  await page.click('#tilt-lock-btn'); await page.click('#lock-btn');
+  bg = await badges();
+  ckV('lock badges: tilt lock off -> only "Tolerance locked"', !bg[0].shown && bg[1].shown, bg);
+  await page.click('#lock-btn');
+  bg = await badges();
+  ckV('lock badges: both locks off -> no badges', bg.every((x) => !x.shown), bg);
+  await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.scrollTo(0, 0); });
 
   // Diagonal (2D trap)
   await page.click('button[data-preset="diag-out"]');

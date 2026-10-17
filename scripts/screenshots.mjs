@@ -40,8 +40,8 @@ for (const s of shots) {
   console.log(`${ok ? 'OK  ' : 'FAIL'} ${s.file}: in=${r.inTolerance} position=${r.pos} bottom r=${r.b.r.toFixed(4)} top r=${r.t.r.toFixed(4)} badge="${r.badge.replace(/\n/g, ' | ')}"`);
 }
 
-// Display/verdict consistency at 4 decimals, plus the size note.
-for (const [dx, expectR, file] of [[0.1251, '0.1251', 'boundary_0.1251.png'], [0.12503, '0.1251', null], [0.125, '0.1250', null]]) {
+// Display/verdict consistency (metric, ≤ 3 decimals, measured values round up), plus the size note.
+for (const [dx, expectR, file] of [[0.1251, '0.126 > 0.125', 'boundary_0.1251.png'], [0.12503, '0.126 > 0.125', null], [0.125, '0.125 ≤ 0.125', null]]) {
   await page.evaluate((v) => window.gdt.setAxis({ bottom: { dx: v, dy: 0 }, top: { dx: v, dy: 0 } }), dx);
   await page.waitForTimeout(250);
   const ui = await page.evaluate(() => ({
@@ -49,7 +49,7 @@ for (const [dx, expectR, file] of [[0.1251, '0.1251', 'boundary_0.1251.png'], [0
     mark: document.querySelector('#row-top .mark').innerText,
     pos: document.getElementById('pos-value').innerText,
     badge: document.getElementById('status-badge').innerText,
-    notes: [...document.querySelectorAll('.size-note')].filter((n) => n.offsetParent && n.innerText.includes('⌀10.0–10.2')).length,
+    notes: [...document.querySelectorAll('.size-note')].filter((n) => n.offsetParent && n.innerText.includes('⌀10–10.2')).length,
     handle: [...document.querySelectorAll('.handle-label')].map((n) => n.innerText).join(' | '),
   }));
   const expectPass = dx <= 0.125;
@@ -126,6 +126,133 @@ const inset = await page.evaluate(() => ({ b: { ...window.gdt.state.bottom }, t:
 const insetOk = inset.b.dx > -0.09 && Math.abs(inset.b.dy) < 2e-3 && inset.t.dx === 0.1;
 failed ||= !insetOk;
 console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b.dx}, dy=${inset.b.dy}; top unchanged=${inset.t.dx === 0.1}`);
+
+  // ---- Lock in tolerance: shrink -> OUT + note, then drag the handle back IN ----
+  {
+    const ckL = (l, ok, x) => { failed ||= !ok; console.log(`${ok ? 'OK  ' : 'FAIL'} ${l} — ${x}`); };
+    const lockBB = await (async () => { await page.locator('#lock-btn').scrollIntoViewIfNeeded(); await page.click('#lock-btn'); return page.locator('#lock-btn').boundingBox(); })();
+    await page.evaluate(() => { window.gdt.setModifier('MMC'); window.gdt.setStated(0.25); window.gdt.setSize(10.2); window.gdt.applyPreset('centered'); window.gdt.dragAxis({ top: { dx: 0.4, dy: 0.05 } }); });
+    await page.waitForTimeout(200);
+    const L0 = await page.evaluate(() => ({ lock: window.gdt.state.lock, top: { ...window.gdt.state.top }, v: window.gdt.result().verdict }));
+    const r0 = Math.hypot(L0.top.dx, L0.top.dy);
+    ckL('lock: toggle on, a drag past the edge clamps to the zone (IN)', L0.lock && r0 <= 0.225 && r0 > 0.22 && L0.v === 'IN', `btn ${Math.round(lockBB.width)}x${Math.round(lockBB.height)} r=${r0.toFixed(4)} ${L0.v}`);
+    await page.evaluate(() => window.gdt.setSize(10.0));
+    await page.waitForTimeout(300);
+    const L1 = await page.evaluate(() => ({ top: { ...window.gdt.state.top }, v: window.gdt.result().verdict, note: getComputedStyle(document.getElementById('shrink-note')).visibility, noteText: document.getElementById('shrink-note').innerText, badge: document.getElementById('status-badge').innerText.split('\n')[0] }));
+    ckL('lock: size 10.2 -> 10.0 leaves the axis put, OUT (red) + "zone shrank: less bonus at this size"', L1.top.dx === L0.top.dx && L1.top.dy === L0.top.dy && L1.v === 'OUT' && L1.badge.includes('OUT') && L1.note === 'visible' && L1.noteText.includes('zone shrank: less bonus at this size'), JSON.stringify(L1));
+    await page.screenshot({ path: 'screenshots/lock_shrunk_out.png' });
+    const pts = await page.evaluate(() => {
+      const { top, bottom } = window.gdt._debug.handles, cam = window.gdt._debug.camera, r = window.gdt._debug.canvas.getBoundingClientRect();
+      const P = (v) => { const p = v.clone().project(cam); return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height }; };
+      return { h: P(top.position), c: P(top.position.clone().setX(bottom.position.x).setY(bottom.position.y)) };
+    });
+    // Path: a tangential/sideways wiggle first (must not stick), then inward to the centre.
+    const vx = pts.c.x - pts.h.x, vy = pts.c.y - pts.h.y;
+    const path = [[pts.h.x - vy * 0.3, pts.h.y + vx * 0.3], [pts.h.x + vy * 0.3, pts.h.y - vx * 0.3], [pts.h.x + vx * 0.5 + vy * 0.2, pts.h.y + vy * 0.5 - vx * 0.2], [pts.c.x, pts.c.y]];
+    const rs = [];
+    await (async (h, path, each) => { await page.mouse.move(h.x, h.y); await page.mouse.down(); let cur = h; for (const [x, y] of path) { for (let i = 1; i <= 6; i++) { await page.mouse.move(cur.x + ((x - cur.x) * i) / 6, cur.y + ((y - cur.y) * i) / 6); await each(); } cur = { x, y }; } await page.mouse.up(); })(pts.h, path, async () => rs.push(await page.evaluate(() => Math.hypot(window.gdt.state.top.dx, window.gdt.state.top.dy))));
+    await page.waitForTimeout(250);
+    const L2 = await page.evaluate(() => ({ top: { ...window.gdt.state.top }, v: window.gdt.result().verdict, note: getComputedStyle(document.getElementById('shrink-note')).visibility }));
+    const r2 = Math.hypot(L2.top.dx, L2.top.dy);
+    const mono = rs.every((x, i) => i === 0 || x <= rs[i - 1] + 1e-9);
+    ckL('lock: dragging the OUT handle back (sideways wiggle, then inward) never sticks and ends IN', L2.v === 'IN' && r2 < 0.125 && mono && L2.note === 'hidden' && rs.length > 3, `r ${rs.map((x) => x.toFixed(3)).join('→')} → ${r2.toFixed(3)} ${L2.v}`);
+    await page.screenshot({ path: 'screenshots/lock_dragged_in.png' });
+    await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setSize(10.1); window.gdt.setModifier('RFS'); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    await page.waitForTimeout(300);
+  }
+
+// ---- MMC / bonus (Sally's rules), driven through the real controls ----------
+{
+  const setNum = async (sel, v) => { await page.locator(sel).fill(String(v)); await page.locator(sel).press('Enter'); await page.locator(sel).blur(); await page.waitForTimeout(120); };
+  const read = async () => { await page.waitForTimeout(150); return readNow(); };
+  const readNow = () => page.evaluate(() => {
+    const r = window.gdt.result();
+    const t = (id) => document.getElementById(id).innerText.replace(/\s+/g, ' ').trim();
+    return { verdict: r.verdict, allowed: r.tolerance, radius: r.radius, status: t('pos-status'), tol: t('tol-line'), vcVis: getComputedStyle(document.getElementById('vc-line')).visibility, vc: t('vc-text'), rc: t('rc-text'),
+      badge: document.getElementById('status-badge').innerText.split('\n')[0], zone: document.querySelector('.zone-label')?.innerText.replace(/\s+/g, ' '),
+      zoneClass: document.querySelector('.zone-label')?.className, axisClass: document.querySelector('.axis-name-label')?.className,
+      handleColors: ['top', 'bottom'].map((k) => '#' + window.gdt._debug.handles[k].material.color.getHexString()),
+      handleText: [...document.querySelectorAll('.handle-label')].map((n) => n.innerText).join(' | '),
+      marks: [...document.querySelectorAll('.readout .mark')].map((n) => n.innerText).join('/'), posValue: t('pos-value'), insetZone: document.querySelector('#inset .zone')?.getAttribute('class'),
+      mmcSym: { panel: !!document.querySelector('#spec-fcf .mmcsym'), drawing: !!document.querySelector('.fcf-label .mmcsym'), vcNote: document.querySelector('.fcf-label .vc-note')?.innerText ?? '' }, msg: t('mc-msg') };
+  });
+  const ck = (ok, label, d) => { failed ||= !ok; console.log(`${ok ? 'OK  ' : 'FAIL'} ${label} — ${JSON.stringify(d)}`); };
+  await page.click('button[data-preset="tilt-out"]'); // 2r = 0.26
+  await page.click('#mod-rfs');
+  await setNum('#n-size', 10.15);
+  let d = await read();
+  ck(d.verdict === 'OUT' && d.allowed === 0.25 && d.tol === 'stated ⌀0.25 = allowed ⌀0.25 (RFS: no bonus)' && d.vcVis === 'hidden' && !d.mmcSym.panel && !d.mmcSym.drawing, 'RFS ⌀10.15: allowed stays ⌀0.25, no bonus line/VC/Ⓜ, 2r 0.26 OUT', d);
+  await page.screenshot({ path: 'screenshots/mmc_rfs.png' });
+  await page.click('#mod-mmc');
+  d = await read();
+  ck(d.verdict === 'IN' && d.allowed === 0.4 && d.radius === 0.2 && d.tol === 'stated ⌀0.25 + bonus ⌀0.15 = allowed ⌀0.4' && d.vcVis === 'visible' && d.vc === 'virtual condition ⌀9.75' && d.mmcSym.panel && d.mmcSym.drawing && d.zone.includes('⌀0.4 ') && d.mmcSym.vcNote === 'virtual condition ⌀9.75', 'MMC ⌀10.15: bonus 0.15, allowed 0.4, zone ⌀0.4, Ⓜ in FCFs, VC ⌀9.75, IN', d);
+  await page.screenshot({ path: 'screenshots/mmc_10.15.png' });
+  for (const [sz, want] of [[10.0, 0.25], [10.2, 0.45], [9.99, 'REJECT_SIZE'], [10.21, 'REJECT_SIZE'], [9.95, 'REJECT_SIZE'], [10.25, 'REJECT_SIZE']]) {
+    await setNum('#n-size', sz);
+    d = await read();
+    const ok = want === 'REJECT_SIZE' ? d.verdict === 'REJECT_SIZE' && d.status === 'REJECT: size' && d.badge.includes('REJECT: size') : d.allowed === want && d.verdict !== 'REJECT_SIZE';
+    ck(ok, `MMC size ⌀${sz} -> ${want}`, { verdict: d.verdict, allowed: d.allowed, vc: d.vc });
+    if (sz === 9.99) { await page.click('button[data-preset="centered"]'); d = await read(); ck(d.verdict === 'REJECT_SIZE', 'REJECT: size even with a perfect axis', { verdict: d.verdict });
+      await page.click('button[data-preset="tilt-out"]'); d = await read();
+      const gray = '#64748b';
+      ck(d.tol.includes('bonus n/a') && !/bonus ⌀/.test(d.tol) && !/bonus ⌀|bonus = /.test(await page.locator('#bonus-detail').innerText()), 'REJECT: size -> readout "bonus n/a", no bonus amount', { tol: d.tol });
+      ck(d.zoneClass.includes(' na') && d.axisClass.includes(' na') && d.handleColors.every((c) => c === gray) && d.insetZone.includes('na') && d.marks === 'n/a/n/a' && !/[✔✘]/.test(d.handleText), 'REJECT: size -> zone, axis, handles, inset, rows neutral gray (no ✔/✘)', { zone: d.zoneClass, handles: d.handleColors, marks: d.marks, handleText: d.handleText });
+      ck(d.posValue === '⌀0.26', 'REJECT: size keeps the position number for information', { posValue: d.posValue }); await page.screenshot({ path: 'screenshots/mmc_reject_size.png' }); await page.click('button[data-preset="tilt-out"]'); }
+    if (d.vc !== 'virtual condition ⌀9.75') ck(false, 'VC never changes with size', d);
+  }
+  await setNum('#n-size', 10.15);
+  await setNum('#n-stated', 0.3);
+  d = await read();
+  ck(d.vc === 'virtual condition ⌀9.7', 'VC follows stated (0.3 -> ⌀9.7)', d.vc);
+  await setNum('#n-stated', 0);
+  d = await read();
+  ck(d.allowed === 0.15 && d.tol === 'stated ⌀0 + bonus ⌀0.15 = allowed ⌀0.15', 'stated ⌀0 valid at MMC (all from bonus)', d.tol);
+  await page.click('#mod-rfs');
+  d = await read();
+  const st = await page.evaluate(() => window.gdt.state.modifier);
+  ck(st === 'MMC' && d.msg === '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.', 'switching to RFS with stated ⌀0 is blocked', { modifier: st, msg: d.msg });
+  await setNum('#n-stated', 0.25);
+  await page.click('#mod-rfs');
+  await setNum('#n-stated', 0);
+  d = await read();
+  const st2 = await page.evaluate(() => window.gdt.state.stated);
+  ck(st2 === 0.25 && d.msg === '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.' && (await page.locator('#n-stated').inputValue()) === '0.25', 'typing ⌀0 at RFS is refused (reverted)', { stated: st2, msg: d.msg });
+  // ---- LMC + Sally's spot-check table (driven through the real segmented switch) ----
+  await setNum('#n-stated', 0.25);
+  await page.click('button[data-preset="centered"]');
+  const spot = { 10.0: [0.25, 0.25, 0.45], 10.1: [0.25, 0.35, 0.35], 10.2: [0.25, 0.45, 0.25] };
+  for (const [sz, exp] of Object.entries(spot)) {
+    await setNum('#n-size', sz);
+    const got = [];
+    for (const m of ['rfs', 'mmc', 'lmc']) { await page.click(`#mod-${m}`); got.push((await read()).allowed); }
+    ck(JSON.stringify(got) === JSON.stringify(exp), `spot-check ⌀${Number(sz).toFixed(2)}: RFS/MMC/LMC allowed = ${exp.join(' / ')}`, got);
+  }
+  const vcSweep = { MMC: new Set(), LMC: new Set() };
+  for (const m of ['MMC', 'LMC']) {
+    await page.click(`#mod-${m.toLowerCase()}`);
+    for (const sz of [10.0, 10.05, 10.1, 10.15, 10.2, 10.22]) { await setNum('#n-size', sz); const x = await read(); vcSweep[m].add(x.vc + ' | ' + x.rc + ' | ' + x.mmcSym.vcNote + ' | rc:' + (await page.evaluate(() => [getComputedStyle(document.getElementById('rc-text')).visibility, document.querySelector('.fcf-label .rc-note')?.innerText ?? ''].join('/')))); }
+  }
+  const mv = [...vcSweep.MMC], lv = [...vcSweep.LMC];
+  ck(mv.length === 1 && lv.length === 1 && /^virtual condition ⌀9\.75 \| .* \| virtual condition ⌀9\.75 \| rc:hidden\/$/.test(mv[0]) && lv[0] === 'LMC virtual condition ⌀10.45 | LMC resultant condition ⌀9.55 | LMC virtual condition ⌀10.45 | rc:visible/LMC resultant condition ⌀9.55', 'VC labels at default: MMC ⌀9.75, LMC ⌀10.45 + LMC resultant ⌀9.55 (LMC only), unchanged while size moves (panel + drawing)', { mv, lv });
+  await setNum('#n-size', 10.05);
+  await page.click('button[data-preset="tilt-out"]');
+  d = await read();
+  const lx = await page.evaluate(() => ({ lsym: !!document.querySelector('#spec-fcf .mmcsym[aria-label="LMC"]'), dsym: !!document.querySelector('.fcf-label .mmcsym[aria-label="LMC"]'), teach: getComputedStyle(document.getElementById('teach-line')).visibility, teachText: document.getElementById('teach-line').innerText, bd: document.getElementById('bonus-detail').innerText }));
+  ck(d.verdict === 'IN' && d.allowed === 0.4 && d.tol === 'stated ⌀0.25 + bonus ⌀0.15 = allowed ⌀0.4' && lx.bd === 'bonus = LMC ⌀10.2 − actual ⌀10.05' && lx.lsym && lx.dsym && lx.teach === 'visible' && lx.teachText === 'MMC protects assembly, LMC protects material.', 'LMC ⌀10.05: bonus 0.15, allowed 0.4, Ⓛ in FCFs, teaching line shown, IN', { ...d, ...lx });
+  await page.screenshot({ path: 'screenshots/lmc_10.05.png' });
+  await setNum('#n-size', 10.22);
+  d = await read();
+  ck(d.verdict === 'REJECT_SIZE' && d.tol.includes('bonus n/a') && d.handleColors.every((c) => c === '#64748b') && d.zoneClass.includes(' na') && d.posValue === '⌀0.26', 'LMC ⌀10.22: REJECT: size, bonus n/a, gray, position kept', { verdict: d.verdict, tol: d.tol, posValue: d.posValue });
+  await setNum('#n-size', 10.1);
+  await setNum('#n-stated', 0);
+  d = await read();
+  ck(d.verdict !== 'INVALID_TOL' && d.allowed === 0.1, 'stated ⌀0 valid at LMC (bonus 0.1 at ⌀10.1)', { verdict: d.verdict, allowed: d.allowed });
+  await setNum('#n-stated', 0.25);
+  await page.click('#mod-rfs');
+  const tv = await page.evaluate(() => getComputedStyle(document.getElementById('teach-line')).visibility);
+  ck(tv === 'hidden', 'teaching line hidden at RFS', tv);
+  await setNum('#n-size', 10.1);
+}
 
 console.log(errors.length ? `Console errors/warnings:\n  ${errors.join('\n  ')}` : 'No console errors or warnings.');
 await browser.close();

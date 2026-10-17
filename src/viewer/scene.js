@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { SPEC } from '../config.js';
-import { fmt, fmtAgainst } from '../format.js';
+import { fmt, fmtLimit, fmtUp, fmtAgainst } from '../format.js';
+import { fcfHTML, fmtNote } from '../fcf.js';
 import { toVisualXY, visualZoneRadius } from '../exaggeration.js';
 import { COLORS, fatLine, circlePoints, arrowHead, label, disposeObject, setLineResolution } from './primitives.js';
 
@@ -113,7 +114,9 @@ export function createViewer(container) {
     const vt = toVisualXY(TP, state.top.dx, state.top.dy, M);
     for (const child of [...dynamic.children]) disposeObject(child);
     dynamic.add(buildPlate(vb, vt, state.xray));
-    dynamic.add(buildZone(visualZoneRadius(SPEC.position.tolerance, M), result.inTolerance, M));
+    const na = result.verdict === 'REJECT_SIZE'; // neutral gray: position not judged
+    dynamic.add(buildZone(visualZoneRadius(result.tolerance, M), result.inTolerance, M, result.tolerance, na));
+    fcfLabel.element.innerHTML = fcfDrawingHTML(state, result);
     dynamic.add(buildAxis(vb, vt, result));
     const leader = buildLeader(vt);
     leader.userData.drawing = true;
@@ -297,19 +300,19 @@ function buildStatic() {
   d.add(fatLine([[TP.x - HOLE_R - 2, TP.y, z], [xDimY - 2, TP.y, z]], extOpts));
   d.add(label(`<span class="basic">${SPEC.basic.fromC}</span>`, 'dim', [xDimY, TP.y / 2, z]));
 
-  // Feature control frame + size callout
-  const fcf = `
-    <div class="callout">⌀${SPEC.hole.nominal} ±${SPEC.hole.plusMinus} THRU</div>
-    <table class="fcf"><tr>
-      <td class="sym"><svg class="possym" viewBox="-10 -10 20 20" aria-label="position"><circle r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M-9 0H9M0 -9V9" stroke="currentColor" stroke-width="2"/></svg></td><td>⌀${SPEC.position.tolerance.toFixed(2)}</td>
-      ${SPEC.position.datums.map((d) => `<td>${d}</td>`).join('')}
-    </tr></table>`;
-  d.add(label(fcf, 'fcf-label', FCF_ANCHOR));
+  // Feature control frame + size callout (content set in update(): follows stated tolerance / Ⓜ)
+  fcfLabel = label(fcfDrawingHTML({ stated: SPEC.position.tolerance, modifier: SPEC.position.modifier }), 'fcf-label', FCF_ANCHOR);
+  d.add(fcfLabel);
   g.add(d);
   return g;
 }
 
 const FCF_ANCHOR = [TP.x + 30, TP.y + 20, H];
+let fcfLabel = null;
+function fcfDrawingHTML(state, result) {
+  const vc = state.modifier !== 'RFS' ? `<div class="vc-note">${state.modifier === 'LMC' ? 'LMC ' : ''}virtual condition ⌀${fmtNote(state.modifier === 'LMC' ? SPEC.hole.lmc + state.stated : SPEC.hole.mmc - state.stated)}</div>${state.modifier === 'LMC' ? `<div class="vc-note rc-note">LMC resultant condition ⌀${fmtUp(Math.ceil((SPEC.hole.mmc - (state.stated + SPEC.hole.lmc - SPEC.hole.mmc)) * 1e4 - 1e-6) / 1e4)}</div>` : ''}` : '';
+  return `<div class="callout">⌀${SPEC.hole.nominal} ±${SPEC.hole.plusMinus} THRU</div>${fcfHTML(state)}${vc}`;
+}
 
 // ---------------------------------------------------------------------------
 // Dynamic part
@@ -387,8 +390,8 @@ function buildPlate(vb, vt, xray) {
 }
 
 /** Translucent cylinder: zone of visual radius R, coaxial with true position, z = 0..H. */
-function buildZone(R, inTol, M) {
-  const color = inTol ? COLORS.in : COLORS.out;
+function buildZone(R, inTol, M, allowed, na = false) {
+  const color = na ? COLORS.na : inTol ? COLORS.in : COLORS.out;
   const g = new THREE.Group();
   g.name = 'zone';
   const geo = new THREE.CylinderGeometry(R, R, H, 64, 1, true);
@@ -415,7 +418,7 @@ function buildZone(R, inTol, M) {
   const anchor = new THREE.Vector3(TP.x + R, TP.y, H);
   const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
   const factor = M === 1 ? 'shown ×1, true size' : `shown ×${M}`;
-  const zl = label(`position zone ⌀${SPEC.position.tolerance}<br>(${factor}, not a pin)`, `zone-label ${inTol ? 'pass' : 'fail'}`, anchor.toArray());
+  const zl = label(`position zone ⌀${fmtLimit(allowed)}<br>(${factor}, not a pin)`, `zone-label ${na ? 'na' : inTol ? 'pass' : 'fail'}`, anchor.toArray());
   zl.userData.callout = {
     leader,
     near: { anchor, px: CALLOUT_PX.zone, center: [0, 0.5] }, // left edge at leader end
@@ -429,7 +432,8 @@ function buildZone(R, inTol, M) {
 function buildAxis(vb, vt, result) {
   const g = new THREE.Group();
   g.name = 'axis';
-  const color = result.inTolerance ? COLORS.in : COLORS.out;
+  const na = result.verdict === 'REJECT_SIZE';
+  const color = na ? COLORS.na : result.inTolerance ? COLORS.in : COLORS.out;
   // faint extension beyond the zone ends
   const ext = 4;
   const dx = (vt.x - vb.x) / H;
@@ -442,7 +446,7 @@ function buildAxis(vb, vt, result) {
   const s = 0.1;
   const anchor = new THREE.Vector3(vb.x + s * (vt.x - vb.x), vb.y + s * (vt.y - vb.y), s * H);
   const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
-  const al = label("hole's actual axis", `axis-name-label ${result.inTolerance ? 'pass' : 'fail'}`, anchor.toArray());
+  const al = label("hole's actual axis", `axis-name-label ${na ? 'na' : result.inTolerance ? 'pass' : 'fail'}`, anchor.toArray());
   const farAnchor = new THREE.Vector3(vb.x + 0.3 * (vt.x - vb.x), vb.y + 0.3 * (vt.y - vb.y), 0.3 * H);
   al.userData.callout = {
     leader,
@@ -452,7 +456,7 @@ function buildAxis(vb, vt, result) {
   g.add(leader, al);
   // radial offset r at each end (true position -> endpoint)
   for (const [v, z, end] of [[vb, 0, result.bottom], [vt, H, result.top]]) {
-    g.add(fatLine([[TP.x, TP.y, z], [v.x, v.y, z]], { color: end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));
+    g.add(fatLine([[TP.x, TP.y, z], [v.x, v.y, z]], { color: na ? COLORS.na : end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));
   }
   return g;
 }
@@ -501,9 +505,11 @@ function buildHandles() {
     bottom.position.set(vb.x, vb.y, 0);
     top.position.set(vt.x, vt.y, H);
     mid.position.set((vb.x + vt.x) / 2, (vb.y + vt.y) / 2, H / 2);
-    bottom.material.color.set(result.bottom.inside ? COLORS.in : COLORS.out);
-    top.material.color.set(result.top.inside ? COLORS.in : COLORS.out);
-    const txt = (name, e) => `${name} r=${fmtAgainst(e.r, result.radius, e.inside)} ${e.inside ? '≤' : '>'} ${fmt(result.radius)} ${e.inside ? '✔' : '✘'}`;
+    const na = result.verdict === 'REJECT_SIZE'; // size rejected: handles neutral, r for information
+    bottom.material.color.set(na ? COLORS.na : result.bottom.inside ? COLORS.in : COLORS.out);
+    top.material.color.set(na ? COLORS.na : result.top.inside ? COLORS.in : COLORS.out);
+    const txt = (name, e) => (na ? `${name} r=${fmtUp(e.r)} (size rejected)`
+      : `${name} r=${fmtAgainst(e.r, result.radius, e.inside)} ${e.inside ? '≤' : '>'} ${fmtLimit(result.radius)} ${e.inside ? '✔' : '✘'}`);
     topLabel.element.textContent = txt('TOP z=10', result.top);
     botLabel.element.textContent = txt('BOTTOM z=0', result.bottom);
   }

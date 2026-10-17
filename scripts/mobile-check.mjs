@@ -113,6 +113,65 @@ for (const name of DEVICES) {
     }
   }
 
+  // ---- MMC / bonus: controls reachable by touch, nothing overlaps in 3D -----
+  {
+    const tapEl = async (sel) => {
+      await page.evaluate((s) => document.querySelector(s).scrollIntoView({ block: 'center' }), sel);
+      await page.waitForTimeout(250);
+      const bb = await page.locator(sel).boundingBox();
+      await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2);
+      await page.waitForTimeout(300);
+      return bb;
+    };
+    const mmcBB = await tapEl('#mod-mmc');
+    await tapEl('#n-size');
+    await page.locator('#n-size').fill('10.15');
+    await page.locator('#n-size').press('Enter');
+    await page.locator('#n-size').blur();
+    await page.evaluate(() => window.gdt.applyPreset('tilt-out'));
+    await page.evaluate(() => { window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    await page.waitForTimeout(700);
+    const m = await page.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect();
+      const shown = (e) => e && getComputedStyle(e).display !== 'none' && r(e).width > 0;
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const res = window.gdt.result(); const cv = r(window.gdt._debug.canvas);
+      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, #status-badge, #mag-badge, #hud-br')].filter(shown);
+      const name = (e) => e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0];
+      const issues = [];
+      for (const e of items) { const b = r(e); if (b.left < cv.left - 0.5 || b.right > cv.right + 0.5 || b.top < cv.top - 0.5 || b.bottom > cv.bottom + 0.5) issues.push(name(e) + ' off-view'); }
+      for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+        const [a, b] = [items[i], items[j]];
+        if (a.id === 'status-badge' && b.id === 'mag-badge') continue;
+        if (hit(r(a), r(b))) issues.push(`${name(a)}~${name(b)}`);
+      }
+      return { modifier: window.gdt.state.modifier, size: window.gdt.state.size, verdict: res.verdict, allowed: res.tolerance, chipMMC: !!document.querySelector('#fcf-chip .mmcsym'), zone: document.querySelector('.zone-label')?.innerText.replace(/\s+/g, ' '), issues };
+    });
+    check('MMC: RFS/MMC + size controls work by touch (MMC button >= 40px)', m.modifier === 'MMC' && m.size === 10.15 && mmcBB.height >= 40, `modifier ${m.modifier}, size ${m.size}, MMC button ${Math.round(mmcBB.width)}x${Math.round(mmcBB.height)}`);
+    check('MMC ⌀10.15: allowed 0.4, zone label ⌀0.4, chip shows Ⓜ, tilt-out IN', m.allowed === 0.4 && m.verdict === 'IN' && m.chipMMC && /⌀0\.4 /.test(m.zone), `${m.verdict} allowed ${m.allowed} zone "${m.zone}" chipⓂ ${m.chipMMC}`);
+    check('MMC ⌀10.15: 3D labels/handles/badges/HUD in view, nothing overlaps', m.issues.length === 0, m.issues.join(', '));
+    await page.screenshot({ path: `${OUT}/${slug(name)}-mmc-10.15-${TAG}.png` });
+    await page.evaluate(() => window.gdt.setSize(10.22));
+    await page.waitForTimeout(500);
+    const rj = await page.evaluate(() => ({ verdict: window.gdt.result().verdict, badge: document.getElementById('status-badge').innerText.split('\n')[0], status: document.getElementById('pos-status').innerText,
+      tol: document.getElementById('tol-line').innerText, pos: document.getElementById('pos-value').innerText,
+      gray: ['top', 'bottom'].every((k) => window.gdt._debug.handles[k].material.color.getHexString() === '64748b') && document.querySelector('.zone-label').classList.contains('na') && document.querySelector('.axis-name-label').classList.contains('na') }));
+    check('REJECT: size shown on badge and panel; bonus n/a; zone/axis/handles neutral gray; position kept', rj.verdict === 'REJECT_SIZE' && rj.badge.includes('REJECT: size') && rj.status === 'REJECT: size' && rj.tol.includes('bonus n/a') && !/bonus ⌀/.test(rj.tol) && rj.gray && /^⌀\d/.test(rj.pos), JSON.stringify(rj));
+    await page.screenshot({ path: `${OUT}/${slug(name)}-mmc-reject-${TAG}.png` });
+    await page.evaluate(() => window.gdt.setSize(10.1));
+    const segBB = { rfs: await tapEl('#mod-rfs'), mmc: await tapEl('#mod-mmc'), lmc: await tapEl('#mod-lmc') };
+    await page.locator('#n-size').fill('10.05'); await page.locator('#n-size').press('Enter'); await page.locator('#n-size').blur();
+    await page.evaluate(() => { window.gdt.applyPreset('tilt-out'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    await page.waitForTimeout(600);
+    const lm = await page.evaluate(() => ({ modifier: window.gdt.state.modifier, allowed: window.gdt.result().tolerance, verdict: window.gdt.result().verdict, chipL: !!document.querySelector('#fcf-chip .mmcsym[aria-label="LMC"]'), vc: document.getElementById('vc-text').innerText, rc: document.getElementById('rc-text').innerText, rcVis: getComputedStyle(document.getElementById('rc-text')).visibility }));
+    const segOk = Object.values(segBB).every((b) => b.height >= 40 && b.width >= 40);
+    check('RFS | MMC | LMC segments each >= 40px and work by touch', segOk && lm.modifier === 'LMC', Object.entries(segBB).map(([k, b]) => `${k} ${Math.round(b.width)}x${Math.round(b.height)}`).join(', ') + ` → ${lm.modifier}`);
+    check('LMC ⌀10.05: allowed 0.4, chip shows Ⓛ, LMC VC ⌀10.45 + resultant ⌀9.55, tilt-out IN', lm.allowed === 0.4 && lm.verdict === 'IN' && lm.chipL && lm.vc === 'LMC virtual condition ⌀10.45' && lm.rc === 'LMC resultant condition ⌀9.55' && lm.rcVis === 'visible', JSON.stringify(lm));
+    await page.screenshot({ path: `${OUT}/${slug(name)}-lmc-10.05-${TAG}.png` });
+    await page.evaluate(() => { window.gdt.setSize(10.1); window.gdt.setModifier('RFS'); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    await page.waitForTimeout(400);
+  }
+
   // ---- Layout -------------------------------------------------------------
   const L = await page.evaluate(() => {
     const rect = (el) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), right: Math.round(b.right) }; };
@@ -202,6 +261,41 @@ for (const name of DEVICES) {
     const v = h.position.clone().project(cam), r = window.gdt._debug.canvas.getBoundingClientRect();
     return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height, inView: r.width > 0 && v.x > -1 && v.x < 1 && v.y > -1 && v.y < 1 };
   }, kind);
+
+  // ---- Lock in tolerance: shrink -> OUT + note, then drag the handle back IN ----
+  {
+    const lockBB = await (async () => { const b = page.locator('#lock-btn'); await b.scrollIntoViewIfNeeded(); await b.tap(); await page.waitForTimeout(100); const bb = await b.boundingBox(); const hits = await page.evaluate(() => { const r = (e) => e.getBoundingClientRect(); const a = r(document.getElementById('lock-btn')); return ['#n-stated', '#mod-rfs', '#mod-mmc', '#mod-lmc', '#r-size', '#n-size'].filter((q) => { const b = r(document.querySelector(q)); return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; }); }); check('lock toggle reachable, >= 40px, overlaps nothing', bb.height >= 40 && bb.width >= 40 && hits.length === 0, `${Math.round(bb.width)}x${Math.round(bb.height)} ${hits.join(',')}`); return bb; })();
+    await page.evaluate(() => { window.gdt.setModifier('MMC'); window.gdt.setStated(0.25); window.gdt.setSize(10.2); window.gdt.applyPreset('centered'); window.gdt.dragAxis({ top: { dx: 0.4, dy: 0.05 } }); });
+    await page.waitForTimeout(200);
+    const L0 = await page.evaluate(() => ({ lock: window.gdt.state.lock, top: { ...window.gdt.state.top }, v: window.gdt.result().verdict }));
+    const r0 = Math.hypot(L0.top.dx, L0.top.dy);
+    check('lock: toggle on (>= 40px), a drag past the edge clamps to the zone (IN)', L0.lock && lockBB.height >= 40 && r0 <= 0.225 && r0 > 0.22 && L0.v === 'IN', `btn ${Math.round(lockBB.width)}x${Math.round(lockBB.height)} r=${r0.toFixed(4)} ${L0.v}`);
+    await page.evaluate(() => { window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; }); await page.waitForTimeout(400);
+    await page.screenshot({ path: `${OUT}/${slug(name)}-lock-boundary-${TAG}.png` });
+    await page.evaluate(() => window.gdt.setSize(10.0));
+    await page.waitForTimeout(300);
+    const L1 = await page.evaluate(() => ({ top: { ...window.gdt.state.top }, v: window.gdt.result().verdict, note: getComputedStyle(document.getElementById('shrink-note')).visibility, noteText: document.getElementById('shrink-note').innerText, badge: document.getElementById('status-badge').innerText.split('\n')[0] }));
+    check('lock: size 10.2 -> 10.0 leaves the axis put, OUT (red) + "zone shrank: less bonus at this size"', L1.top.dx === L0.top.dx && L1.top.dy === L0.top.dy && L1.v === 'OUT' && L1.badge.includes('OUT') && L1.note === 'visible' && L1.noteText.includes('zone shrank: less bonus at this size'), JSON.stringify(L1));
+    await page.evaluate(() => { window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; }); await page.waitForTimeout(400);
+    const pts = await page.evaluate(() => {
+      const { top, bottom } = window.gdt._debug.handles, cam = window.gdt._debug.camera, r = window.gdt._debug.canvas.getBoundingClientRect();
+      const P = (v) => { const p = v.clone().project(cam); return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height }; };
+      return { h: P(top.position), c: P(top.position.clone().setX(bottom.position.x).setY(bottom.position.y)) };
+    });
+    // Path: a tangential/sideways wiggle first (must not stick), then inward to the centre.
+    const vx = pts.c.x - pts.h.x, vy = pts.c.y - pts.h.y;
+    const path = [[pts.h.x - vy * 0.3, pts.h.y + vx * 0.3], [pts.h.x + vy * 0.3, pts.h.y - vx * 0.3], [pts.h.x + vx * 0.5 + vy * 0.2, pts.h.y + vy * 0.5 - vx * 0.2], [pts.c.x, pts.c.y]];
+    const rs = [];
+    await (async (h, path, each) => { await touch('touchStart', [[h.x, h.y]]); let cur = h; for (const [x, y] of path) { for (let i = 1; i <= 6; i++) { await touch('touchMove', [[cur.x + ((x - cur.x) * i) / 6, cur.y + ((y - cur.y) * i) / 6]]); await page.waitForTimeout(16); await each(); } cur = { x, y }; } await touch('touchEnd', []); })(pts.h, path, async () => rs.push(await page.evaluate(() => Math.hypot(window.gdt.state.top.dx, window.gdt.state.top.dy))));
+    await page.waitForTimeout(250);
+    const L2 = await page.evaluate(() => ({ top: { ...window.gdt.state.top }, v: window.gdt.result().verdict, note: getComputedStyle(document.getElementById('shrink-note')).visibility }));
+    const r2 = Math.hypot(L2.top.dx, L2.top.dy);
+    const mono = rs.every((x, i) => i === 0 || x <= rs[i - 1] + 1e-9);
+    check('lock: dragging the OUT handle back (sideways wiggle, then inward) never sticks and ends IN', L2.v === 'IN' && r2 < 0.125 && mono && L2.note === 'hidden' && rs.length > 3, `r ${rs.map((x) => x.toFixed(3)).join('→')} → ${r2.toFixed(3)} ${L2.v}`);
+    await page.screenshot({ path: `${OUT}/${slug(name)}-lock-in-${TAG}.png` });
+    await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setSize(10.1); window.gdt.setModifier('RFS'); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); document.getElementById('panel').scrollTop = 0; });
+    await page.waitForTimeout(300);
+  }
 
   // ---- Presets by tap: verdict matches -------------------------------------
   const presetResults = [];

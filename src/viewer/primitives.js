@@ -8,6 +8,7 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 export const COLORS = Object.freeze({
   in: 0x16a34a,
   out: 0xdc2626,
+  na: 0x64748b, // neutral: verdict is REJECT: size, position not judged
   ink: 0x0f172a,
   plate: 0xd5dbe3,
   bore: 0x8a96a8,

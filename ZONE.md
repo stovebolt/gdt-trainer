@@ -12,12 +12,13 @@ tests in `tests/tolerance.test.js`. The 3D scene only displays that result.
 - **Datum reference frame:** primary **A** = bottom face (z = 0), secondary
   **B** = left edge (x = 0), tertiary **C** = front edge (y = 0). The origin is
   at the A/B/C intersection, X runs from B, Y from C, and **+Z points up out of A**.
-- **Feature:** through hole ⌀10.1 ±0.1. The size is shown as a label only.
-  There is no size check in v1.
+- **Feature:** through hole ⌀10.1 ±0.1 (limits ⌀10.00–10.20). Since the
+  MMC build, the actual size is set with a slider and **checked** (§8).
 - **Location:** **BASIC 35** from B and **BASIC 30** from C, so the
   **true position (TP) = (35, 30)**.
 - **Feature control frame:** `⌖ | ⌀0.25 | A | B | C`, regardless of feature
-  size (RFS). **No MMC and no bonus tolerance in v1.**
+  size (RFS) by default. The MMC build adds an RFS/MMC toggle,
+  `⌖ | ⌀0.25 Ⓜ | A | B | C`, and an editable stated tolerance (§8).
 - **Zone:** a fixed cylinder of diameter **⌀0.25** (radius 0.125). Its axis is
   the TP axis: through (35, 30) and **perpendicular to A**. It runs from
   **z = 0 to z = 10**, the full length (thickness) of the feature.
@@ -30,7 +31,7 @@ tests in `tests/tolerance.test.js`. The 3D scene only displays that result.
 | Axis | the line x = 35, y = 30 (parallel to Z) | basic dimensions from B and C; perpendicular to primary datum A |
 | Diameter | 0.25 | the tolerance value in the FCF |
 | Length | z = 0 … 10 | the zone covers the full length of the feature (plate thickness) |
-| Size or position change with the hole? | no | RFS, so the zone is fixed |
+| Size or position change with the hole? | RFS: no. MMC: the diameter grows with the bonus (§8) | RFS fixes the zone; at MMC the zone diameter is the **allowed** tolerance |
 
 In code, the zone is `{ truePosition: {x:35, y:30}, tolerance: 0.25 }` plus
 the thickness `10` (`src/config.js` → `SPEC`). In the scene it is drawn by
@@ -101,20 +102,27 @@ floating-point rounding (for example, dx = dy = 0.125·√½ gives r =
 0.12500000000000003). That slack is about 10⁶ times smaller than any
 measurable difference.
 
-**Display: 4 decimals, never contradicting the verdict.** Every measured or
-limit value is shown to 0.0001 mm (limits appear as `0.1250` and `⌀0.2500`).
-Plain rounding could show an OUT value as the limit (r = 0.12503 → "0.1250").
-So `src/format.js` rounds values that are compared against a limit **toward
-their verdict**:
-- PASS: round to the nearest 0.0001, capped at the limit
-- FAIL: round to the nearest 0.0001, but never below limit + 0.0001 (only
-  values within 0.00005 above the limit get bumped)
+**Display: metric, at most 3 decimals, never contradicting the verdict.**
+*This supersedes the earlier 4-decimal rule, per Will (2026-10-15).*
+The part is metric (mm). Values are shown with at most 3 decimals, with
+trailing zeros dropped and the leading zero kept: `0.25`, `0.4`, `10.15`,
+`0.247`, `10`. `src/format.js` rounds conservatively:
+- the **reported position** and r (measured values) round **up**;
+- the **allowed tolerance**, the r limit and the **bonus** round **down**;
+- a **passing** value is capped at the displayed limit, so it shows ≤ limit;
+- a **failing** value always shows **strictly above** the displayed limit.
+  Rounding up already guarantees this, and it is also enforced explicitly
+  (limit + 0.001), so a fail can never display as equal to or under the
+  limit and no extra digit is ever needed.
 
-This means r = 0.1251 shows `0.1251 > 0.1250 ✘` and r = 0.12503 also shows
-`0.1251 ✘`. The margin is computed from the displayed numbers, so it always
-adds up on screen. Formatting never changes a verdict. Only `tolerance.js`
-decides IN/OUT (with its 1e-9 slack). `tests/format.test.js` covers this,
-including a sweep of 4,001 values across the boundary and the slack band.
+For example, r = 0.1251 and r = 0.12503 both show `0.126 > 0.125 ✘`,
+r = 0.125 shows `0.125 ≤ 0.125 ✔`, and 2r = 0.2461 shows `⌀0.247`. Float noise
+of up to 1e-9 mm is ignored, so 0.13 never becomes 0.131. The margin is
+computed from the displayed numbers, so it always adds up on screen.
+Formatting never changes a verdict: only `tolerance.js` decides IN/OUT,
+with its 1e-9 slack. `tests/format.test.js` covers this, including a sweep
+across the boundary for the limits 0.25, 0.4, 0.45, 0.12 and an off-grid
+0.2505. Inputs (offsets, size, stated) step in 0.001 mm.
 Drawing callouts (FCF ⌀0.25, BASIC 35 / 30, ⌀10.1 ±0.1, plate 100 × 60 × 10)
 keep their drawing notation.
 
@@ -168,9 +176,9 @@ two crossing points.
 2. The datum features are perfect planes, and the DRF is exactly the
    modelled frame. There is no datum shift and no datum feature simulation.
 3. The zone length equals the feature length (10 mm), with no projected zone.
-4. RFS: the zone size does not depend on the hole size. The hole size is not
-   checked in v1. The UI says so next to every verdict: *"Hole size assumed
-   within ⌀10.0–10.2 (size not checked in this demo)"*.
+4. RFS: the zone size does not depend on the hole size. Since the MMC build
+   the hole size **is** checked (§8), and the note next to every verdict
+   shows it: *"Hole size ⌀10.1 ✔ within ⌀10–10.2"* (or *"✘ outside"*).
 5. The boundary is inclusive (r = 0.125 is IN). There is no measurement
    uncertainty in v1.
 
@@ -182,7 +190,7 @@ The expert signed off on the math in §2–§4 and answered the v1 open question
 |---|---|---|
 | 1 | Which axis is evaluated? | The axis of the **unrelated actual mating envelope** (RFS). **Keep tilt** in the trainer. ✅ *Confirmed by Will (accuracy review, 2026-10-08).* |
 | 2 | Boundary inclusivity | **Boundary counts as IN** (r = 0.1250 passes). **No measurement uncertainty** in v1. |
-| 3 | Display rounding | **4 decimals** (0.0001 mm) everywhere numbers appear. Implemented with verdict-consistent rounding (§4). |
+| 3 | Display rounding | ~~4 decimals~~ **Superseded 2026-10-15 (Will): metric, at most 3 decimals, trailing zeros dropped**, with conservative rounding (§4). |
 | 4 | Zone length for a through hole | **Plain plate thickness** (z = 0 … 10). No chamfers or counterbores. |
 | 5 | Exaggeration presentation | **Keep the uniform, labelled magnification** (§5). |
 | 6 | Backlog order | 1. **MMC / bonus tolerance**, 2. **datum shift**, 3. **projected tolerance zone** (parked). |
@@ -193,3 +201,104 @@ The expert signed off on the math in §2–§4 and answered the v1 open question
   against the standard. If that changes, only the wording here and in the UI
   changes. The v1 math (an ideal straight axis given directly) does not
   depend on which envelope defines the axis.
+
+## 8. MMC and bonus tolerance (branch `mmc-bonus`, for Sally to verify)
+
+These are Sally's rules as implemented. The math is pure and lives in
+`src/tolerance.js` (`allowedTolerance`, `evaluatePart`). The tests are in
+`tests/mmc.test.js`. Default inputs: stated ⌀0.25, hole MMC ⌀10.00 (the
+smallest hole), hole LMC ⌀10.20 (the largest).
+
+| # | Rule | Implementation |
+|---|---|---|
+| 1 | A slider sets the actual hole size from ⌀9.95 to ⌀10.25. Outside ⌀10.00–10.20 the verdict is **REJECT: size**, whatever the axis position | `sizeOk = 10.00 ≤ size ≤ 10.20` (inclusive, 1e-9 slack). The verdict checks size **before** position, so a perfect axis is still rejected. The number box steps in 0.001 mm; the slider steps in 0.01 |
+| 2 | RFS: allowed = stated (⌀0.25) | `bonus = 0`, `allowed = stated`, at every size |
+| 3 | MMC: bonus = actual − 10.00, allowed = stated + bonus (max ⌀0.45 at ⌀10.20) | `bonus = clamp(size − 10.00, 0, 10.20 − 10.00)`, **floored** (math to 0.0001 mm, display to 0.001 mm) so it is never overstated. `allowed = stated + bonus` |
+| 4 | Zone radius = allowed / 2, live. IN/OUT compares the reported position (2r) with allowed | The cylinder, the inset circle, the 3D zone label and every "vs" column use `allowed`. Position = 2·max(r_bottom, r_top) ≤ allowed, which is the same as both endpoints having r ≤ allowed/2 (boundary inclusive) |
+| 5 | Readout: "stated ⌀0.25 + bonus ⌀0.0xx = allowed ⌀0.xxx", with the bonus hidden at RFS | MMC: `stated ⌀0.25 + bonus ⌀0.15 = allowed ⌀0.4`. RFS: `stated ⌀0.25 = allowed ⌀0.25 (RFS: no bonus)`. Metric display, ≤ 3 decimals; bonus and allowed round down |
+| 6 | At MMC, a "virtual condition" label | **VC = 10.00 − stated**: ⌀9.75 at the default. It updates when the stated tolerance is edited and **never** changes with hole size. Shown in the panel and under the FCF in the drawing, at MMC only |
+| a | RFS/MMC toggle and an editable stated tolerance (default 0.25) | The MMC math uses the stated value. The Ⓜ symbol (drawn as an SVG, so no missing-glyph risk) appears in the panel FCF, the phone FCF chip and the 3D drawing FCF, at MMC only |
+| b | A stated ⌀0 is valid at MMC (all tolerance from bonus) and invalid at RFS | The math marks ⌀0 at RFS as `INVALID_TOL` (never accepted). The UI **blocks** it: typing 0 at RFS is refused and reverted, and switching to RFS while the stated value is 0 is refused. Both show the reason line (Sally's wording, updated 2026-10-15 to name LMC too) *"⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance."* |
+| c | On REJECT: size, the readout shows "bonus n/a", with no bonus amount | `bonus = null` (n/a) when the size is outside the limits, so `allowed` falls back to the stated value (for information only). MMC readout: `stated ⌀0.25 + bonus n/a (size rejected)` |
+| d | On REJECT: size, the zone and handles are neutral gray, with the position number kept | The zone, actual axis and its label, TOP/BOTTOM handles, endpoint rows and inset all turn neutral gray (#64748b), with no ✔/✘. The reported position (rounded up) stays in the readout, marked "(info)", and the handle tags show r "(size rejected)" |
+
+### Verdict order
+
+1. stated ⌀0 at RFS → **INVALID** (the UI never lets you reach this state)
+2. size outside ⌀10.00–10.20 → **REJECT: size**
+3. position 2r ≤ allowed → **IN TOLERANCE**, otherwise **OUT OF TOLERANCE**
+
+### Worked edges (stated ⌀0.25, all unit-tested)
+
+| Actual hole | Size | RFS allowed | MMC bonus | MMC allowed | VC (MMC) |
+|---|---|---|---|---|---|
+| ⌀9.95 (slider min) | REJECT: size | — | n/a | (0.25) | ⌀9.75 |
+| ⌀9.9999 | REJECT: size | — | n/a | (0.25) | ⌀9.75 |
+| ⌀10 (MMC) | OK | 0.25 | 0 | **0.25** | ⌀9.75 |
+| ⌀10.15 | OK | 0.25 | 0.15 | **0.4** | ⌀9.75 |
+| ⌀10.2 (LMC) | OK | 0.25 | 0.2 | **0.45** | ⌀9.75 |
+| ⌀10.2001 | REJECT: size | — | n/a | (0.25) | ⌀9.75 |
+| ⌀10.25 (slider max) | REJECT: size | — | n/a | (0.25) | ⌀9.75 |
+
+Values in brackets fall back to the stated value and are for information
+only; the size reject overrides them. More tested cases: the boundaries are
+inclusive (at ⌀10.2 a 2r of 0.45 is IN and 0.4502 is OUT; at ⌀10 r = 0.125
+is IN). Stated 0.3 gives VC ⌀9.7. A stated ⌀0 at MMC with ⌀10.12 allows
+0.12. A stated ⌀0 at RFS is INVALID (blocked in the UI). ⌀10.1234 gives a
+bonus that shows as 0.123 and an allowed tolerance that shows as 0.373
+(both rounded down).
+
+### Resolved (2026-10-15)
+
+- ✅ **Decimals** (Will): metric, at most 3 decimals, trailing zeros dropped,
+  with conservative rounding (§4). Supersedes the 4-decimal rule.
+- ✅ **⌀0 at RFS** (Sally): it stays blocked, with the reason line *"⌀0 is only
+  meaningful at MMC, where bonus supplies the tolerance."* (rule b).
+- ✅ **Oversize or undersize hole** (Sally): the readout shows "bonus n/a", with
+  no amount (rule c).
+- ✅ **Colours on REJECT: size** (Sally): neutral gray, with the position number
+  kept for information (rule d).
+
+## 9. LMC (least material condition), Sally's rules
+
+The modifier control is a three-way segmented switch, **RFS | MMC | LMC**,
+defaulting to RFS. Each segment is at least 40 px on phones. The FCF (panel,
+phone chip and 3D drawing) shows Ⓛ at LMC. Tests: `tests/lmc.test.js`.
+
+| # | Rule | Implementation |
+|---|---|---|
+| 1 | bonus = 10.20 − actual size | `bonus = clamp(10.20 − size, 0, 10.20 − 10.00)`, **floored** like the MMC bonus |
+| 2 | allowed = stated + bonus: 0.25 at ⌀10.20, 0.45 at ⌀10.00 | Same `allowed` path as MMC, so the zone, inset and labels all follow it |
+| 3 | A fixed label "LMC virtual condition ⌀(10.20 + stated)", ⌀10.45 at the default | `virtualCondition = lmc + stated`. It follows the stated value and **never** changes with size. Shown in the panel and under the drawing FCF |
+| 4 | Size reject, ⌀0 handling and gray zone work as at MMC, and the bonus rounds down | REJECT: size gives bonus n/a, a gray zone and the position kept. A stated ⌀0 is valid at LMC (and MMC) and blocked at RFS |
+| 5 | A fixed label "LMC resultant condition ⌀X", X = 10.00 − (stated + 0.20), i.e. MMC size minus the allowed tolerance at MMC size: ⌀9.55 at the default | `resultantCondition = mmc − (stated + (lmc − mmc))`, **rounded up** because it is a minimum boundary (math to 0.0001 mm, display to 0.001 mm). Shown beside the LMC virtual condition, in the panel and under the drawing FCF, **at LMC only** (its space is reserved at RFS/MMC so the panel does not jump). It follows the stated value (0.1 → ⌀9.7, 0 → ⌀9.8) and never changes with size |
+| — | Teaching line | *"MMC protects assembly, LMC protects material."* appears in small italics under the VC line at MMC and LMC, and is hidden at RFS |
+
+### Sally's spot-check table (stated ⌀0.25; unit-tested and browser-checked)
+
+| Actual hole | RFS allowed | MMC allowed | LMC allowed |
+|---|---|---|---|
+| ⌀10.00 | 0.25 | 0.25 | 0.45 |
+| ⌀10.10 | 0.25 | 0.35 | 0.35 |
+| ⌀10.20 | 0.25 | 0.45 | 0.25 |
+
+At the default tolerance, the VC labels read **⌀9.75 at MMC** and **⌀10.45 at LMC**, and the LMC resultant condition reads **⌀9.55**.
+They stay unchanged while the size slider moves from ⌀10.00 to ⌀10.22 (checked
+in the panel and in the drawing). LMC ⌀10.05 gives bonus 0.15 and allowed 0.4.
+
+## 10. Lock in tolerance (Will; spec revised by Sally and Gleeb)
+
+A **"Lock in tolerance"** toggle, off by default, sits beside the stated
+tolerance (at least 40 px on phones). The math is pure, in `src/tolerance.js`
+(`lockDrag`, `shrinkCausedOut`). Tests: `tests/lock.test.js`. Browser checks:
+`scripts/screenshots.mjs` (mouse) and `scripts/mobile-check.mjs` (touch, 8 devices).
+
+| Rule | Implementation |
+|---|---|
+| Applies only to **user drags and tilts** (3D handles, inset dots, offset/tilt controls). **Presets are not clamped** | `setAxis(patch, { user: true })` goes through `lockDrag`; presets call `setAxis` without it |
+| Each endpoint is clamped **separately** to radial offset ≤ allowed/2 − ε (ε = 1e-6 mm), using the **current** allowed (bonus included) | Radial scale toward true position (direction kept), then truncated toward zero onto the 0.001 mm grid, which only shrinks r. Tilting edge-to-edge works (e.g. top +0.124, bottom −0.124 at ⌀0.25). The zone is convex, so the whole axis stays inside |
+| **No automatic re-clamp** when the zone shrinks (size, mode or stated) | The axis stays where it is. If it ends up outside, the verdict is a normal **OUT** (red) |
+| Note *"zone shrank: less bonus at this size"* | Shown only when the lock was on during the shrink **and** the shrink caused the OUT: the axis is IN at the pre-shrink allowed and OUT now (`shrinkCausedOut`). A preset or turning the lock off clears it; it hides once the axis is back IN or the zone grows back |
+| Outside + locked: a drag may only **reduce** the radial offset | A step that would increase r is **projected** onto the disc of the current r (direction of the pointer kept), not rejected. Sideways or tangential drags slide around and creep inward, so the handle never sticks. Once inside, the normal clamp applies |
+| Size reject while locked | The position clamp still applies; the verdict stays **REJECT: size** with the gray zone |
+| Display | A locked axis at the edge shows e.g. "position ⌀0.45 ≤ ⌀0.45" (true value 0.4492). The pass display is capped at the shown limit (§4), so it never reads above the limit |

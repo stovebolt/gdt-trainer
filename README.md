@@ -11,7 +11,7 @@ flat colors, bold outlines, simple primitives.
 | Datums | A = bottom face (z=0), B = left edge (x=0), C = front edge (y=0); origin at A∩B∩C, +Z up out of A |
 | Hole | ⌀10.1 ±0.1 THRU (size is shown as a label only) |
 | Location | BASIC 35 from B, BASIC 30 from C, so true position = (35, 30) |
-| FCF | ⌖ ⌀0.25 \| A \| B \| C (RFS; no MMC/bonus in v1) |
+| FCF | ⌖ ⌀0.25 \| A \| B \| C (RFS by default; MMC Ⓜ with bonus on branch `mmc-bonus`, see ZONE.md §8) |
 
 How the zone is built and how IN/OUT is decided: see **[ZONE.md](ZONE.md)**.
 
@@ -40,7 +40,7 @@ and in the top-view inset, and writes `screenshots/in.png`, `out.png`,
 `tilt_in.png`, `tilt_out.png`, `tilt_out_closeup.png`,
 `boundary_0.1251.png` and `labels.png`. It also checks the zone/axis/inset
 labels (including the live ×N as the slider moves) and that r = 0.1251 and r = 0.12503 both read
-`0.1251` with FAIL, that r = 0.1250 reads PASS, and that the size note is
+`0.126 > 0.125` with FAIL, that r = 0.125 reads PASS, and that the size note is
 visible next to both verdicts. It uses the system
 Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
 
@@ -55,18 +55,29 @@ Chrome at `/usr/bin/google-chrome` (override with `CHROME=/path`).
   two endpoint crossings **B** and **T** in true millimetres, with no
   exaggeration. You can drag B, T or the axis line here too.
 - **Sliders and number boxes.** Set the top and bottom dx/dy precisely
-  (±0.4000 mm, 0.0001 steps).
-- **Presets:** Centered (in), Tilted ±0.1000 (in), Tilted ±0.1300 (out),
-  Shifted 0.1250 (in, on boundary), Shifted 0.1260 (out), X 0.1000 + Y 0.1000 (out).
+  (±0.4 mm, 0.001 steps).
+- **Presets:** Centered (in), Tilted ±0.1 (in), Tilted ±0.13 (out),
+  Shifted 0.125 (in, on boundary), Shifted 0.126 (out), X 0.1 + Y 0.1 (out).
 - **Readout.** For each endpoint it shows dx, dy, r vs 0.125, 2r vs ⌀0.25 and
   PASS/FAIL. The overall **position = 2 × (worst endpoint r)** is reported as
-  a **diameter** and compared to ⌀0.2500. Next to the verdict (in the side
-  panel and the top-left badge) is the note *"Hole size assumed within
-  ⌀10.0–10.2 (size not checked in this demo)"*.
-- **4 decimals everywhere** a measured or limit value appears (0.0001 mm).
-  Values compared against a limit are rounded *toward their verdict*
-  (`src/format.js`), so the display can never contradict PASS/FAIL. For
-  example, r = 0.12503 is OUT and shows as `0.1251`, not `0.1250`. Drawing
+  a **diameter** and compared with the **allowed** tolerance (⌀0.25 at
+  RFS). Next to the verdict, in the side panel and the top-left badge, is the
+  size note *"Hole size ⌀10.1 ✔ within ⌀10–10.2"*.
+- **Hole size & material condition** (panel): an actual-size slider (⌀9.95–10.25)
+  with a number box, an RFS | MMC | LMC segmented switch (LMC: bonus = 10.20 − size, VC = 10.20 + stated, see ZONE.md §9) and the editable stated tolerance.
+- **Lock in tolerance** toggle (off by default): user drags and tilts can't take an endpoint outside the current allowed zone (each endpoint clamped separately; presets not clamped). If the zone later shrinks (size, mode or stated), the axis stays put and reads OUT with the note "zone shrank: less bonus at this size". Dragging an outside endpoint can only bring it inward (projected, never stuck). See ZONE.md §10.
+  A size outside ⌀10–10.2 gives **REJECT: size**. The readout then shows
+  *bonus n/a*, and the zone, axis and handles turn neutral gray, with the
+  position number kept for information. At MMC the readout
+  shows *stated + bonus = allowed*, the zone grows live, Ⓜ appears in every
+  FCF, and *virtual condition ⌀9.75* (10.00 − stated) is shown. A stated ⌀0
+  is allowed only at MMC; at RFS it is refused with the reason line. All
+  rules: ZONE.md §8.
+- **Metric display** (per Will; supersedes the 4-decimal rule): at most 3
+  decimals, trailing zeros dropped (0.25, 0.4, 10.15, 0.247). Measured values
+  round up, limits/allowed/bonus round down, and a fail never shows ≤ its limit
+  (`src/format.js`). For example, r = 0.12503 is OUT and shows `0.126 > 0.125`.
+  Drawing
   callouts (FCF ⌀0.25, BASIC 35 / 30, ⌀10.1 ±0.1, plate size) keep their
   drawing notation.
 - **Exaggeration slider** (default ×24). This is display only; see ZONE.md §5.
@@ -164,8 +175,8 @@ display its result.
 - The hole is modelled as an ideal cylinder with a straight axis. There is no
   form error, no size variation, no actual-mating-envelope fitting (see
   ZONE.md, open questions).
-- Hole size ⌀10.1 ±0.1 is a label only. There is no size check and no MMC
-  bonus (out of scope for v1).
+- The hole size is a single actual diameter (an ideal cylinder). There is
+  no local-size or form variation.
 - If the top and bottom endpoints coincide in the inset, grabbing that spot
   moves **T** (top). Use the 3D **slide** handle or the sliders to shift both.
 - A 3D drag happens in the horizontal plane through the grabbed handle. When

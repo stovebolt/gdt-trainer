@@ -228,3 +228,14 @@ button:hover { background: #e2e8f0; }
 @media (pointer: coarse) {
   .view-row button { min-height: 40px; min-width: 40px; }
 }
+/* View bar: view row + display-only lock badges ("Tilt locked", "Tolerance locked") */
+.view-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+.lock-badges { display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
+.lock-badges:not(:has(.lock-badge:not([hidden]))) { display: none; }
+.lock-badge { font: 700 11px/1.25 system-ui; color: #fff; background: #0f766e; border-radius: 4px; padding: 1px 6px; white-space: nowrap; width: fit-content; }
+.lock-badge[hidden] { display: none; }
+@media (max-width: 700px), (max-height: 500px) {
+  .view-bar { align-self: stretch; flex-direction: row-reverse; justify-content: space-between; flex-wrap: nowrap; }
+  .view-bar .view-row { align-self: auto; }
+  .lock-badge { font-size: 10px; padding: 1px 5px; }
+}

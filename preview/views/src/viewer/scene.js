@@ -154,7 +154,7 @@ export function createViewer(container) {
     if (!isPhone()) return t;
     const cr = renderer.domElement.getBoundingClientRect();
     const rb = (id) => document.getElementById(id)?.getBoundingClientRect();
-    const row = rb('view-row'), hud = rb('hud-br'), mag = rb('mag-badge');
+    const row = rb('view-bar'), hud = rb('hud-br'), mag = rb('mag-badge');
     if (!row || !cr.height) return t;
     const freeTop = row.bottom - cr.top;
     const freeBot = Math.min(...[mag].filter((r) => r && r.height).map((r) => r.top - cr.top), cr.height); void hud;
@@ -248,7 +248,7 @@ export function createViewer(container) {
       const b = el.getBoundingClientRect();
       return { l: b.left - cr.left, r: b.right - cr.left, t: b.top - cr.top, b: b.bottom - cr.top };
     };
-    const sb = box('status-badge'), vr = box('view-row');
+    const sb = box('status-badge'), vr = box('view-bar');
     const badge = sb && vr ? { l: Math.min(sb.l, vr.l), r: Math.max(sb.r, vr.r), t: Math.min(sb.t, vr.t), b: Math.max(sb.b, vr.b) } : sb || vr; // labels drop below the badge + view row
     const mag = box('mag-badge'); // labels lift above it
     const chip = box('hud-br'); // phone-only "Show drawing" button + FCF chip (bottom-right)
@@ -298,12 +298,12 @@ export function createViewer(container) {
       c.leader.geometry.setPositions([_a.x, _a.y, _a.z, _n.x, _n.y, _n.z]);
       placed.push({ o, c, sx, sy, l: sx - cx * ew, t: sy - cy * eh, ew, eh, anchor: _a.clone() });
     });
-    // Ortho views: the drawing's "True position" note (fixed world point) can land
-    // under the badge / view row / exaggeration badge; hide it there instead.
+    // The drawing's "True position" note (fixed world point) can land under the
+    // badge / view row / exaggeration badge (ortho views, iPad 3D); hide it there.
     if (!tpLabel) staticGroup.traverse((o) => { if (o.element?.classList?.contains('tp-label')) tpLabel = o; });
     if (tpLabel) {
       let hide = false;
-      if (camera === ortho && tpLabel.element.offsetWidth) {
+      if (tpLabel.element.offsetWidth) { // any projection: never under the overlay
         tpLabel.getWorldPosition(_n).project(camera);
         const ew = tpLabel.element.offsetWidth, eh = tpLabel.element.offsetHeight;
         const l = ((_n.x + 1) / 2) * w - ew / 2, t = ((1 - _n.y) / 2) * h - eh / 2;
@@ -384,6 +384,37 @@ export function createViewer(container) {
         _n.y -= (2 * dy) / h;
         _n.unproject(camera);
         lbl.position.copy(lbl.parent.worldToLocal(_n));
+      }
+    }
+    // Ortho: if the TOP and BOTTOM tags still meet on screen (e.g. a tilted
+    // axis in top view), slide the lower one further down until they clear.
+    if (camera === ortho) {
+      const [tl, bl] = handles.labels;
+      const rect = (lbl) => {
+        lbl.getWorldPosition(_n).project(camera);
+        const ew = lbl.element.offsetWidth, eh = lbl.element.offsetHeight;
+        return { l: ((_n.x + 1) / 2) * w - ew / 2, t: ((1 - _n.y) / 2) * h - eh / 2, ew, eh };
+      };
+      if (tl.parent && bl.parent && tl.element.offsetWidth && bl.element.offsetWidth) {
+        const a = rect(tl), b = rect(bl);
+        if (a.l < b.l + b.ew && b.l < a.l + a.ew && a.t < b.t + b.eh + 2 && b.t < a.t + a.eh + 2) {
+          const [up, lo, ru, rl] = a.t <= b.t ? [tl, bl, a, b] : [bl, tl, b, a];
+          const need = ru.t + ru.eh + 3 - rl.t; // px down for the lower tag
+          const pxw = (2 * (ortho.top / ortho.zoom)) / h;
+          _a.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+          lo.position.addScaledVector(_a, -need * pxw);
+          void up;
+        }
+        // "slide" tag: lift it clear of either end tag
+        const ml = handles.midLabel;
+        if (ml.parent && ml.element.offsetWidth) {
+          const pxw = (2 * (ortho.top / ortho.zoom)) / h;
+          _a.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+          for (const lbl of [tl, bl]) {
+            const m = rect(ml), e = rect(lbl);
+            if (m.l < e.l + e.ew && e.l < m.l + m.ew && m.t < e.t + e.eh + 2 && e.t < m.t + m.eh + 2) ml.position.addScaledVector(_a, (m.t + m.eh + 3 - e.t) * pxw);
+          }
+        }
       }
     }
     if (unsized) layoutKey = '';

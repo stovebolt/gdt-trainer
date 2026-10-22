@@ -302,3 +302,87 @@ tolerance (at least 40 px on phones). The math is pure, in `src/tolerance.js`
 | Outside + locked: a drag may only **reduce** the radial offset | A step that would increase r is **projected** onto the disc of the current r (direction of the pointer kept), not rejected. Sideways or tangential drags slide around and creep inward, so the handle never sticks. Once inside, the normal clamp applies |
 | Size reject while locked | The position clamp still applies; the verdict stays **REJECT: size** with the gray zone |
 | Display | A locked axis at the edge shows e.g. "position ⌀0.45 ≤ ⌀0.45" (true value 0.4492). The pass display is capped at the shown limit (§4), so it never reads above the limit |
+
+## 11. Views, Lock tilt and the 2D trap (branch `views`)
+
+### View controls
+
+A compact row in the 3D view: **Top Z · Front Y · Side X · 3D**, plus an
+**Ortho/Persp** switch, which shows the current projection. On phones and touch
+screens every button is at least 40 px. The row sits under the verdict badge,
+and the callouts and handle tags are kept clear of it.
+
+| Button | Camera |
+|---|---|
+| Top (Z) | Ortho, looking down −Z; screen right = +X, up = +Y |
+| Front (Y) | Ortho, looking along +Y; screen right = +X, up = +Z |
+| Side (X) | Ortho, looking along −X (from +X); screen right = +Y, up = +Z |
+| 3D | The default perspective orbit (on phones, the default hole close-up) |
+| Ortho/Persp | Switches the projection and keeps the pose and apparent size |
+
+- A view button **snaps smoothly** (≈0.4 s eased) and switches to ortho. Orbiting
+  afterwards clears the highlighted view. Pure math: `src/views.js`
+  (`viewPose`, `dragPlane`, `dragDelta`, `effectiveDistance`).
+- **Dragging in every view** (`dragPlane`):
+  - Looking mostly down (top view and the 3D orbit): the drag happens in the
+    horizontal plane through the grabbed handle, so it moves the endpoint in X/Y.
+  - Front and side views: the drag happens in a vertical plane facing the camera.
+    Only the visible in-plane horizontal axis moves (X in front view, Y in side
+    view); screen-vertical motion, which is Z, is ignored.
+- **Labels in ortho**:
+  - Handle tags sit to the left of their handle. In top view, where both
+    handles coincide, they are stacked below-left.
+  - Callouts that meet on screen are stacked.
+  - Everything stays below the badge and view row and above the bottom HUD.
+  - On phones the part is centred in the free band.
+
+### Lock tilt (Sally)
+
+Off by default; the toggle reads **"Lock tilt"**.
+
+- **Turning it on never moves the axis.** It freezes the current tilt
+  (top − bottom) exactly, whether the axis is tilted or perpendicular.
+  The original idea, snapping both ends to their midpoint offset, was dropped:
+  a lock never moves the axis by itself.
+- While on, every user drag or offset edit **translates both ends by the same
+  delta** (`translateAxis`):
+  - A one-end drag moves both ends by that end's delta.
+  - A two-end request uses the mean delta, so its tilt part is dropped.
+- **Presets are not affected.** A preset may set a new tilt, which the lock then
+  freezes.
+- **Both locks on:** the delta is projected onto the set of moves that keep each
+  end inside the zone. An end that is already outside may only come inward.
+  - Whichever end would leave first limits the move, and both ends move by the
+    clamped delta.
+  - Sideways drags slide along the boundary and never stick.
+  - Example: tilt ±0.1 at ⌀0.25 dragged +0.2 in X moves +0.024 (TOP reaches 0.124).
+- **Lessons:**
+  - JS API: `gdt.setTiltLock(bool)`, `gdt.setLock(bool)`, `gdt.setView('top'|'front'|'side'|'3d')`,
+    `gdt.setProjection('ortho'|'persp')`.
+  - URL params: `?tiltlock=1&lock=1&view=top`.
+
+### Lock badges
+
+While a lock is on, a small teal badge shows it in the 3D view: **"Tilt
+locked"** and/or **"Tolerance locked"**, each only while its lock is on. They
+are stacked next to the view row (to its right on desktop, left of it on
+phones). The callouts and handle tags treat the badges as part of the
+badge/view-row band, so nothing overlaps them.
+
+They are **display-only**, not tap-to-unlock. Turning a lock off by accident
+mid-lesson would silently change behaviour, and a tappable badge would need a
+40 px touch target, which would no longer be small. The toggles in the panel
+remain the one place to change a lock.
+
+### Diagonal (2D trap), Sally's preset
+
+The axis is offset 0.10 in X and 0.10 in Y with no tilt. r = √(0.1² + 0.1²) =
+0.1414, so position ⌀0.283 > ⌀0.25: **OUT** at RFS. Each single-axis offset
+(0.10) is inside the ±0.125 band that front and side views show, so the part
+looks fine in 2D; only the round zone (top view) shows why it fails. While the
+axis sits on this preset, the panel shows *"Inside the band in front and side
+views, but outside the round zone."*
+
+Tests: `tests/views.test.js` (view poses, drag planes and mapping, tilt lock,
+both locks, the 2D trap). Browser checks: `scripts/screenshots.mjs` (mouse) and
+`scripts/mobile-check.mjs` (touch, 8 devices).

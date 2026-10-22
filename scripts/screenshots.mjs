@@ -254,6 +254,130 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   await setNum('#n-size', 10.1);
 }
 
+// ---- Views (Top Z / Front Y / Side X / 3D + Ortho/Persp), tilt lock, 2D-trap preset ----
+{
+  const ckV = (l, ok, x) => { failed ||= !ok; console.log(`${ok ? 'OK  ' : 'FAIL'} ${l} — ${typeof x === 'string' ? x : JSON.stringify(x)}`); };
+  await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setStated(0.25); window.gdt.setSize(10.1); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); });
+  const scr = (k) => page.evaluate((k) => {
+    const h = window.gdt._debug.handles[k], cam = window.gdt._debug.camera, r = window.gdt._debug.canvas.getBoundingClientRect();
+    const v = h.position.clone().project(cam);
+    return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+  }, k);
+  const mdrag = async (k, dx, dy) => { const p = await scr(k); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(p.x + dx, p.y + dy, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(150); };
+  const st = () => page.evaluate(() => JSON.parse(JSON.stringify({ b: window.gdt.state.bottom, t: window.gdt.state.top, v: window.gdt.view(), verdict: window.gdt.result().verdict })));
+  const labelsOk = () => page.evaluate(() => {
+    const r = (e) => e.getBoundingClientRect();
+    const shown = (e) => e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && r(e).width > 0 && e.closest('[style*="display: none"]') == null;
+    const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+    const cv = r(window.gdt._debug.canvas);
+    const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #view-row, .lock-badge')].filter(shown);
+    const name = (e) => e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0];
+    const issues = [];
+    for (const e of items) { const b = r(e); if (b.left < cv.left - 0.5 || b.right > cv.right + 0.5 || b.top < cv.top - 0.5 || b.bottom > cv.bottom + 0.5) issues.push(name(e) + ' off-view'); }
+    const rr = (e) => { const q = r(e); return `[${Math.round(q.left)},${Math.round(q.top)} ${Math.round(q.width)}x${Math.round(q.height)}]`; };
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (hit(r(items[i]), r(items[j]))) issues.push(`${name(items[i])}${rr(items[i])}~${name(items[j])}${rr(items[j])}`);
+    const minFont = Math.min(...[...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label')].filter(shown).map((e) => parseFloat(getComputedStyle(e).fontSize)));
+    return { issues, minFont };
+  });
+  const look = () => page.evaluate(() => { const d = window.gdt._debug.camera.getWorldDirection(window.gdt._debug.camera.position.clone()); return [d.x, d.y, d.z].map((v) => Math.round(v * 1000) / 1000); });
+  const expectLook = { top: [0, 0, -1], front: [0, 1, 0], side: [-1, 0, 0] };
+  const dragExpect = {
+    top: { k: 'top', dx: 40, dy: -30, ok: (a, b) => b.t.dx > a.t.dx + 0.02 && b.t.dy > a.t.dy + 0.02 && b.b.dx === a.b.dx && b.b.dy === a.b.dy, what: 'TOP moves +X/+Y, BOTTOM unchanged' },
+    front: { k: 'bottom', dx: 40, dy: -30, ok: (a, b) => b.b.dx > a.b.dx + 0.02 && b.b.dy === a.b.dy && b.t.dx === a.t.dx, what: 'BOTTOM moves in X only (screen-vertical = Z ignored)' },
+    side: { k: 'top', dx: 40, dy: -30, ok: (a, b) => b.t.dy > a.t.dy + 0.02 && b.t.dx === a.t.dx && b.b.dy === a.b.dy, what: 'TOP moves in Y only' },
+  };
+  for (const v of ['top', 'front', 'side']) {
+    await page.evaluate(() => window.gdt.applyPreset('centered'));
+    await page.click(`#view-row [data-view="${v}"]`);
+    await page.waitForTimeout(700);
+    const s0 = await st(), lk = await look();
+    const pressed = await page.evaluate((v) => ({ btn: document.querySelector(`#view-row [data-view="${v}"]`).getAttribute('aria-pressed'), proj: document.getElementById('proj-btn').innerText }), v);
+    ckV(`view ${v}: snaps (animated) to ortho, looking ${expectLook[v]}`, s0.v.view === v && s0.v.ortho && !s0.v.animating && lk.every((c, i) => Math.abs(c - expectLook[v][i]) < 0.01) && pressed.btn === 'true' && pressed.proj === 'Ortho', { view: s0.v, look: lk, pressed });
+    const L = await labelsOk();
+    ckV(`view ${v}: labels in view, no overlaps, font >= 10px`, L.issues.length === 0 && L.minFont >= 10, L);
+    const e = dragExpect[v];
+    await mdrag(e.k, e.dx, e.dy);
+    const s1 = await st();
+    ckV(`view ${v}: mouse drag of ${e.k.toUpperCase()} — ${e.what}`, e.ok(s0, s1), { before: { b: s0.b, t: s0.t }, after: { b: s1.b, t: s1.t } });
+    await page.screenshot({ path: `screenshots/view_${v}.png` });
+  }
+  await page.click('#proj-btn'); await page.waitForTimeout(200);
+  const pp = await st();
+  await page.click('#proj-btn'); await page.waitForTimeout(200);
+  const po = await st();
+  ckV('Ortho/Persp switch toggles the projection, keeping the pose', !pp.v.ortho && po.v.ortho, { afterFirst: pp.v, afterSecond: po.v });
+  await page.click('#view-row [data-view="3d"]'); await page.waitForTimeout(700);
+  const s3 = await st();
+  const cam3 = await page.evaluate(() => window.gdt._debug.camera.position.toArray().map((v) => Math.round(v * 10) / 10));
+  ckV('3D returns to the default perspective orbit', s3.v.view === '3d' && !s3.v.ortho && JSON.stringify(cam3) === JSON.stringify([-22, -88, 92]), { view: s3.v, cam: cam3 });
+  await page.evaluate(() => window.gdt.applyPreset('centered'));
+  await mdrag('top', 40, 0);
+  const s3d = await st();
+  ckV('3D view drag still works (TOP moves, BOTTOM unchanged)', Math.abs(s3d.t.dx) > 0.005 && s3d.b.dx === 0, s3d);
+
+  // Lock tilt: turning it on leaves the axis exactly where it is; drags then keep top − bottom constant
+  await page.click('button[data-preset="tilt-in"]');
+  const a0 = await st();
+  await page.locator('#tilt-lock-btn').scrollIntoViewIfNeeded();
+  await page.click('#tilt-lock-btn');
+  const a1 = await st();
+  const tl = await page.evaluate(() => ({ on: window.gdt.state.tiltLock, pressed: document.getElementById('tilt-lock-btn').getAttribute('aria-pressed'), text: document.getElementById('tilt-lock-btn').innerText }));
+  ckV('Lock tilt ON leaves both endpoints unchanged (tilted axis not straightened)', tl.on && tl.pressed === 'true' && tl.text === 'Lock tilt' && JSON.stringify([a0.b, a0.t]) === JSON.stringify([a1.b, a1.t]), { before: [a0.b, a0.t], after: [a1.b, a1.t] });
+  const dif = (s) => [Math.round((s.t.dx - s.b.dx) * 1e6), Math.round((s.t.dy - s.b.dy) * 1e6)];
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await mdrag('top', 30, -20);
+  const a2 = await st();
+  await mdrag('bottom', -25, 10);
+  const a3 = await st();
+  ckV('Lock tilt: TOP and BOTTOM drags translate both ends (top − bottom constant)', JSON.stringify(dif(a2)) === JSON.stringify(dif(a0)) && JSON.stringify(dif(a3)) === JSON.stringify(dif(a0)) && a2.b.dx !== a0.b.dx && a3.t.dx !== a2.t.dx, { d0: dif(a0), d2: dif(a2), d3: dif(a3), a3: [a3.b, a3.t] });
+  await page.screenshot({ path: 'screenshots/tilt_lock.png' });
+  // both locks
+  await page.evaluate(() => { window.gdt.applyPreset('tilt-in'); window.gdt.setLock(true); });
+  await mdrag('mid', 200, 0);
+  const b1 = await st();
+  const rr = (p) => Math.hypot(p.dx, p.dy);
+  ckV('Lock tilt + Lock in tolerance: the end that would leave first stops the move; tilt kept; IN', b1.verdict === 'IN' && JSON.stringify(dif(b1)) === JSON.stringify(dif(a0)) && Math.max(rr(b1.t), rr(b1.b)) > 0.12 && Math.max(rr(b1.t), rr(b1.b)) <= 0.125, { b: b1.b, t: b1.t, verdict: b1.verdict });
+  // Lock badges in the 3D view: each shown only while its lock is on; no overlaps
+  const badges = () => page.evaluate(() => ['badge-tilt', 'badge-tol'].map((id) => { const e = document.getElementById(id); return { id, shown: !e.hidden && e.getBoundingClientRect().width > 0, text: e.innerText }; }));
+  let bg = await badges();
+  ckV('lock badges: "Tilt locked" + "Tolerance locked" both shown with both locks on', bg.every((x) => x.shown) && bg[0].text === 'Tilt locked' && bg[1].text === 'Tolerance locked', bg);
+  for (const v of ['3d', 'top', 'front']) {
+    await page.click(`#view-row [data-view="${v}"]`); await page.waitForTimeout(700);
+    const L = await labelsOk();
+    ckV(`lock badges (${v} view): nothing overlaps badges, labels or controls`, L.issues.length === 0, L);
+  }
+  await page.click('#view-row [data-view="3d"]'); await page.waitForTimeout(700);
+  await page.locator('#lock-btn').scrollIntoViewIfNeeded(); await page.click('#lock-btn');
+  bg = await badges();
+  ckV('lock badges: tolerance lock off -> only "Tilt locked"', bg[0].shown && !bg[1].shown, bg);
+  await page.click('#tilt-lock-btn'); await page.click('#lock-btn');
+  bg = await badges();
+  ckV('lock badges: tilt lock off -> only "Tolerance locked"', !bg[0].shown && bg[1].shown, bg);
+  await page.click('#lock-btn');
+  bg = await badges();
+  ckV('lock badges: both locks off -> no badges', bg.every((x) => !x.shown), bg);
+  await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.scrollTo(0, 0); });
+
+  // Diagonal (2D trap)
+  await page.click('button[data-preset="diag-out"]');
+  await page.click('#view-row [data-view="top"]'); await page.waitForTimeout(700);
+  const dg = await page.evaluate(() => ({ verdict: window.gdt.result().verdict, pos: document.getElementById('pos-value').innerText, cmp: document.getElementById('pos-compare').innerText, note: document.getElementById('preset-note').innerText, vis: getComputedStyle(document.getElementById('preset-note')).visibility, label: document.querySelector('button[data-preset="diag-out"]').innerText }));
+  ckV('Diagonal (2D trap): OUT, ⌀0.283 > ⌀0.25, note shown', dg.verdict === 'OUT' && dg.pos === '⌀0.283' && /> ⌀0\.25/.test(dg.cmp) && dg.vis === 'visible' && dg.note === 'Inside the band in front and side views, but outside the round zone.' && dg.label === 'Diagonal (2D trap)', dg);
+  await page.screenshot({ path: 'screenshots/diag_top_view.png' });
+  await page.evaluate(() => window.gdt.applyPreset('centered'));
+  const nv = await page.evaluate(() => getComputedStyle(document.getElementById('preset-note')).visibility);
+  ckV('preset note hides once the axis is no longer the diagonal preset', nv === 'hidden', nv);
+  await page.click('#view-row [data-view="3d"]'); await page.waitForTimeout(700);
+
+  // URL params for lessons
+  const u = new globalThis.URL(URL); u.searchParams.set('view', 'top'); u.searchParams.set('tiltlock', '1'); u.searchParams.set('lock', '1');
+  const p2 = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await p2.goto(u.toString(), { waitUntil: 'networkidle' }); await p2.waitForTimeout(800);
+  const q = await p2.evaluate(() => ({ v: window.gdt.view(), tilt: window.gdt.state.tiltLock, lock: window.gdt.state.lock, api: ['setTiltLock', 'setLock', 'setView', 'setProjection'].every((f) => typeof window.gdt[f] === 'function') }));
+  ckV('URL ?view=top&tiltlock=1&lock=1 and JS API (gdt.setTiltLock/setLock/setView/setProjection)', q.v.view === 'top' && q.v.ortho && q.tilt && q.lock && q.api, q);
+  await p2.close();
+}
+
 console.log(errors.length ? `Console errors/warnings:\n  ${errors.join('\n  ')}` : 'No console errors or warnings.');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

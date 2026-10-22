@@ -1,6 +1,6 @@
 // Wires state -> tolerance math -> 3D scene + UI readout.
 import { SPEC, VIEW, PRESETS } from './config.js';
-import { evaluatePart, allowedTolerance, lockDrag, shrinkCausedOut } from './tolerance.js';
+import { evaluatePart, allowedTolerance, lockDrag, shrinkCausedOut, translateAxis } from './tolerance.js';
 import { fcfHTML } from './fcf.js';
 import { createViewer, isPhone } from './viewer/scene.js';
 import { attachDrag } from './interaction.js';
@@ -19,6 +19,7 @@ const state = {
   modifier: SPEC.position.modifier, // 'RFS' | 'MMC' | 'LMC'
   stated: SPEC.position.tolerance, // stated position tolerance ⌀ (mm), editable
   lock: false, // "Lock in tolerance": user drags/tilts can't take an endpoint out of the allowed zone
+  tiltLock: false, // "Lock tilt": both endpoints move together (tilt frozen as it is when turned on)
   shrinkFrom: null, // allowed ⌀ before a zone shrink that happened while locked (for the note)
 };
 const q3 = (v) => Math.round(v * 1e3) / 1e3; // UI inputs in 0.001 mm (metric display)
@@ -58,11 +59,12 @@ const ui = createUI(document.getElementById('panel'), {
   onModifier: (m) => setModifier(m),
   onStated: (v) => setStated(v),
   onLock: (on) => setLock(on),
+  onTiltLock: (on) => setTiltLock(on),
   onResetCamera: () => viewer.resetCamera(),
   onZoomHole: () => viewer.zoomToHole(),
 });
 attachDrag({
-  camera: viewer.camera,
+  getCamera: () => viewer.camera,
   domElement: viewer.domElement,
   controls: viewer.controls,
   handles: viewer.handles,
@@ -75,7 +77,16 @@ const allowedNow = () => allowedTolerance({ stated: state.stated, modifier: stat
 
 // user = a drag or tilt/offset control: clamped when locked. Presets are not.
 function setAxis(patch, { user = false } = {}) {
-  for (const k of ['bottom', 'top']) {
+  if (user && state.tiltLock) {
+    // Lock tilt: one translation for both ends. Mean of the requested end
+    // deltas (a one-end drag moves both by that end's delta; any tilt part of
+    // a two-end request is dropped). With the tolerance lock on, the delta is
+    // clamped so neither end leaves the zone (whichever would leave first).
+    const ds = ['bottom', 'top'].filter((k) => patch[k]).map((k) => { const n = { ...state[k], ...patch[k] }; return { dx: n.dx - state[k].dx, dy: n.dy - state[k].dy }; });
+    const delta = ds.length ? { dx: ds.reduce((a, d) => a + d.dx, 0) / ds.length, dy: ds.reduce((a, d) => a + d.dy, 0) / ds.length } : { dx: 0, dy: 0 };
+    const t = translateAxis({ bottom: state.bottom, top: state.top, delta, allowed: state.lock ? allowedNow() : null, maxDev: VIEW.maxDeviation });
+    state.bottom = t.bottom; state.top = t.top;
+  } else for (const k of ['bottom', 'top']) {
     if (!patch[k]) continue;
     const next = { ...state[k], ...patch[k] };
     state[k] = user && state.lock ? lockDrag({ prev: state[k], next, allowed: allowedNow() }) : next;
@@ -101,6 +112,8 @@ function changeZone(fn) {
 const setSize = (v) => changeZone(() => { state.size = clampSize(v); });
 const setModifier = (m) => changeZone(() => { if (m === 'RFS' && state.stated <= 0) return false; state.modifier = m; });
 const setStated = (v) => changeZone(() => { const s = clampStated(v); if (state.modifier === 'RFS' && s <= 0) return false; state.stated = s; });
+// Lock tilt never moves the axis by itself: it only freezes the current tilt.
+const setTiltLock = (on) => { state.tiltLock = !!on; refresh(); };
 const setLock = (on) => { state.lock = !!on; if (!state.lock) state.shrinkFrom = null; refresh(); };
 export const shrinkNoteFor = (s, res) => res.verdict === 'OUT' && shrinkCausedOut({ rBottom: res.bottom.r, rTop: res.top.r, allowedBefore: s.shrinkFrom, allowedNow: res.tolerance });
 
@@ -120,9 +133,37 @@ function refresh() {
   btn.setAttribute('aria-pressed', String(state.drawing));
   btn.textContent = state.drawing ? 'Hide drawing' : 'Show drawing';
   last.shrinkNote = shrinkNoteFor(state, last);
+  // Display-only lock badges in the 3D view (shown only while each lock is on).
+  document.getElementById('badge-tilt').hidden = !state.tiltLock;
+  document.getElementById('badge-tol').hidden = !state.lock;
+  last.presetNote = PRESETS.find((p) => p.note && ['bottom', 'top'].every((k) => p[k].dx === state[k].dx && p[k].dy === state[k].dy))?.note ?? '';
   ui.render(state, last);
 }
 refresh();
+
+// ---- View controls (Top Z / Front Y / Side X / 3D + Ortho/Persp) -----------
+const viewRow = document.getElementById('view-row');
+viewRow.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.id === 'proj-btn') viewer.setProjection(viewer.view.ortho ? 'persp' : 'ortho');
+  else viewer.setView(b.dataset.view);
+});
+const syncViewRow = ({ view, ortho }) => {
+  for (const b of viewRow.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === view));
+  const pb = document.getElementById('proj-btn');
+  pb.setAttribute('aria-pressed', String(ortho));
+  pb.textContent = ortho ? 'Ortho' : 'Persp';
+};
+viewer.onView(syncViewRow);
+syncViewRow(viewer.view);
+
+// URL params for lessons: ?view=top|front|side|3d &tiltlock=1 &lock=1
+const qp = new URLSearchParams(location.search);
+const on = (v) => v === '1' || v === 'true' || v === 'on';
+if (qp.has('lock')) setLock(on(qp.get('lock')));
+if (qp.has('tiltlock')) setTiltLock(on(qp.get('tiltlock')));
+if (qp.has('view') && ['top', 'front', 'side', '3d'].includes(qp.get('view'))) viewer.setView(qp.get('view'), { ms: 0 });
 
 // Small hook for automated browser checks / the Domain Expert's console use.
 window.gdt = {
@@ -136,7 +177,11 @@ window.gdt = {
   setModifier,
   setLock,
   setStated,
+  setTiltLock,
+  setView: (v, o) => viewer.setView(v, o),
+  setProjection: (p) => viewer.setProjection(p),
+  view: () => viewer.view,
   dragAxis: (patch) => setAxis(patch, { user: true }), // same path as a handle drag / tilt control
-  _debug: { handles: viewer.handles, camera: viewer.camera, canvas: viewer.domElement, controls: viewer.controls },
+  _debug: { handles: viewer.handles, get camera() { return viewer.camera; }, canvas: viewer.domElement, controls: viewer.controls },
   ready: true,
 };

@@ -254,16 +254,16 @@ export function createViewer(container) {
     const rb = (id) => { const e = document.getElementById(id); if (!e || !e.offsetWidth) return null; const b = e.getBoundingClientRect(); return { t: b.top - cr.top, b: b.bottom - cr.top }; };
     const phone = isPhone();
     let top = 8, bot = h - 8;
-    if (phone) { // the badge + view row above, the exaggeration badge below
+    { // the badge + view row above, the exaggeration badge below (phones and tablets)
       const sb = rb('status-badge'), vr = rb('view-bar'), mg = rb('mag-badge');
-      top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + 40; // + room for the TOP tag above its handle
-      if (mg) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag
+      top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + (phone ? 40 : 70); // + room for the TOP tag above its handle (tablets: tags reach further left under the badges)
+      if (mg && (phone || mg.t > h * 0.5)) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag (only when the badge sits low)
     }
     const region = { l: phone ? 100 : 90, r: w - (phone ? 150 : 170), t: top, b: bot };
     if (region.r - region.l < 40 || region.b - region.t < 40) return false;
     const px = (v) => { const n = v.clone().project(camera); return { x: ((n.x + 1) / 2) * w, y: ((1 - n.y) / 2) * h }; };
     const ctr = px(controls.target);
-    const plan = reframePlan(keyPts.map(px), region, ctr);
+    const plan = reframePlan(keyPts.map(px), region, ctr, { tol: phone ? 8 : 14 }); // small excursions (default close-up) never pan
     if (!plan) return false;
     const dist = camera.position.distanceTo(controls.target);
     const halfH = camera === ortho ? ortho.top / ortho.zoom : dist * tanHalf();
@@ -362,6 +362,11 @@ export function createViewer(container) {
         const ew = tpLabel.element.offsetWidth, eh = tpLabel.element.offsetHeight;
         const l = ((_n.x + 1) / 2) * w - ew / 2, t = ((1 - _n.y) / 2) * h - eh / 2;
         hide = [badge, mag, chip].some((r) => r && l < r.r && l + ew > r.l && t < r.b && t + eh > r.t);
+      }
+      if (!hide && tpLabel.element.offsetWidth) { // never over a handle / zone label either
+        const tr = tpLabel.element.getBoundingClientRect();
+        const others = [...placed.map((q) => q.o.element), ...document.querySelectorAll('.handle-label')];
+        hide = others.some((e) => { if (e.style.visibility === 'hidden') return false; const r = e.getBoundingClientRect(); return r.width && tr.left < r.right - 1 && tr.right > r.left + 1 && tr.top < r.bottom - 1 && tr.bottom > r.top + 1; });
       }
       tpLabel.element.style.visibility = hide ? 'hidden' : '';
     }

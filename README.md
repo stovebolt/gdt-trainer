@@ -211,10 +211,10 @@ display its result.
   (panel, phone chip, 3D drawing) and frees the zone:
   - **C dropped:** the zone slides in Y. **B dropped:** it slides in X.
   - **B and C dropped (A only):** slides in X and Y, stays perpendicular to A,
-    so it acts like a perpendicularity control (⌀ = lateral spread of the ends).
+    so it acts like a perpendicularity control (readout labelled "⌀ (acts like perpendicularity to A)"; ⌀ = lateral spread of the ends).
   - **A dropped alone:** nothing visible changes, and an on-screen note says so.
   - **A, B and C dropped:** the zone floats free and the control means
-    nothing for a single hole. Verdict **NO DATUMS** (neutral gray, never IN/OUT).
+    nothing for a single hole. Neutral gray, never IN/OUT: "No datum reference: position is undefined".
 - The freed directions are drawn as a magenta slab and arrows in the 3D, top,
   front and side views, and as a band in the panel inset. The zone is drawn at
   its best-fit (slid) centre, and the readout table measures r from that centre.
@@ -224,3 +224,6 @@ display its result.
   URL `?datums=AB` keeps A and B (`?datums=none` drops all three).
 - Tests: `tests/datums.test.js` (pure math in `src/tolerance.js`: `datumFreedom`,
   `fitZone`, `evaluatePositionDatums`, `lockDragFree`, `translateAxisFree`).
+- The automatic best-fit zone centre is drawn as a small ◆ (display only). Large slides
+  auto-reframe the view (pan, dolly out only if needed); phones cap the exaggeration at ×40;
+  Reset camera is the manual fallback.

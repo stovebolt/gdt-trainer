@@ -399,9 +399,9 @@ perpendicular to.
 | A B C | ⌀0.25 A B C | fixed at true position (35, 30) | r from true position (unchanged) |
 | A B (C dropped) | A B | **slides in Y** | r from the slid centre; X is still held |
 | A C (B dropped) | A C | **slides in X** | r from the slid centre; Y is still held |
-| A (B, C dropped) | A | **slides in X and Y**, stays ⟂ A | position ⌀ = lateral spread of the endpoints (perpendicularity-like) |
+| A (B, C dropped) | A | **slides in X and Y**, stays ⟂ A | "⌀ (acts like perpendicularity to A)" = lateral spread of the endpoints |
 | B C (A dropped alone) | B C | no change | same numbers; the on-screen note says "Dropping A alone changes nothing visible here." |
-| none | (no datum cells) | **floats free** | nothing to judge: verdict **NO DATUMS** |
+| none | (no datum cells) | **floats free** | nothing to judge: neutral verdict, "No datum reference: position is undefined" |
 
 Other combinations follow the same two rules (B off frees X, C off frees Y; A
 off is only a note unless B and C are also off).
@@ -430,6 +430,7 @@ a part worse**: ⌀(fewer datums) ≤ ⌀(all datums) for every axis (unit-teste
 
 - FCF in the panel, the phone chip and the 3D drawing lose the dropped cells.
   Dropped datum labels and planes are dimmed in the 3D drawing.
+- The ◆ best-fit zone centre marker (display only, see rulings).
 - A magenta badge in the 3D view (for example "C dropped: zone slides in Y"),
   a one-line "zone slides in Y · centre dy +0.200" in the panel, and, for A only
   or no datums, a one-line teaching note.
@@ -440,7 +441,7 @@ a part worse**: ⌀(fewer datums) ≤ ⌀(all datums) for every axis (unit-teste
   with a band along the freed axes and a "true position" cross.
 - The table's dx / dy columns are offsets from the slid centre (the rule note says
   where the centre is).
-- NO DATUMS is neutral gray, never green or red; the r and 2r cells show "—"
+- NO DATUMS ("No datum reference: position is undefined") is neutral gray, never green or red; the r and 2r cells show "—"
   because nothing is being compared.
 
 ### Locks
@@ -459,22 +460,64 @@ a part worse**: ⌀(fewer datums) ≤ ⌀(all datums) for every axis (unit-teste
 - RFS / MMC / LMC bonus applies to the slid zone unchanged (allowed ⌀ does not
   depend on the datums).
 
-### Open display questions for Sally
+### Sally's rulings (applied in this build)
 
-1. **Orientation with A dropped but B or C kept** (for example B only, or A+C
-   dropped). The zone is still drawn vertical (⟂ the plate). A strict reading
-   would orient it from B alone. For a single hole through a flat plate we kept it
-   vertical and show only the "no change" note for A; confirm that is the lesson.
-2. **NO DATUMS:** we show a neutral verdict (neither IN nor OUT) with "this
-   control means nothing". Is "NO DATUMS" the right wording, or should it read
-   as invalid (like ⌀0 at RFS)?
-3. **A-only wording:** "acts like a perpendicularity control". Should the readout
-   say *perpendicularity ⌀* explicitly instead of *position ⌀* in that case?
-4. **Best-fit centre:** we pick the optimal zone position automatically. Should the
-   learner instead place the zone, so they feel the slide? (Math is unchanged.)
-5. **Large slides on a phone at ×24:** a slide of several tenths of a mm moves the
-   hole well away from the close-up framing, and callouts can crowd the edge.
-   "Reset camera" or a lower exaggeration fixes it. Acceptable?
+1. **A dropped with B and C kept: no change.** Confirmed, nothing visible changes;
+   the on-screen note stays.
+2. **Wording.**
+   - All three dropped: the verdict stays neutral gray (no IN or OUT) with the
+     text **"No datum reference: position is undefined"**. It shows in the panel
+     detail line and in the 3D badge. The status slot keeps the short
+     label "NO DATUMS" so the panel layout is unchanged (panel-stable fit checked).
+   - A only (B and C dropped): the readout is labelled
+     **"⌀ (acts like perpendicularity to A)"** instead of "position ⌀"
+     (panel label and the 3D badge: "perpendicularity to A ⌀…").
+3. **Best-fit centre stays automatic**, and is now **drawn**: a small magenta
+   diamond ◆ on the top and bottom faces of the zone with a dashed centreline
+   (3D, top, front and side views), and a ◆ in the panel inset. The marker is display-only
+   and never changes the verdict. The learner does not place the zone.
+4. **Large slides stay in view.**
+   - **Auto-reframe:** after a change settles (and after a view snap), if the zone
+     centre or an axis endpoint would sit outside a free region of the 3D view
+     (clear of the badge, view row, ×N label and the callout side), the camera pans,
+     and only if the box is still too big dollies out. It never rotates, never runs mid-drag,
+     and gives up after 3 passes. The math is the pure `reframePlan` in `src/framing.js`.
+   - **Phones cap the exaggeration at ×40** (other screens keep ×80). The slider
+     maximum and the state follow.
+   - The **×N label** ("Zone & deviations drawn ×N") stays visible at every N
+     above ×1, inside the 3D view and clear of other labels (checked at ×2, ×24, ×40).
+   - **Reset camera** stays the manual fallback: it returns to the overview and
+     auto-reframe does not fight it until the axis changes again.
+
+### Current behaviour with A dropped and only B or only C kept (read-only analysis, not changed)
+
+Sally's point: with only B (or only C) kept, rotation about that plane's normal is
+free, so the zone could tilt. **The build does not do that.** Exactly what it does today:
+
+| Kept | Zone orientation | Freedoms | Verdict logic |
+|---|---|---|---|
+| B only (A, C dropped) | always vertical (parallel to Z, as with A) | slides in **Y** only (C dropped); X is held by B | best-fit centre `cy` along Y, r from that centre for both endpoints |
+| C only (A, B dropped) | always vertical | slides in **X** only (B dropped); Y is held by C | best-fit centre `cx` along X |
+
+Dropping A changes nothing here (`aDropped` only drives a note, and the note is
+suppressed whenever B or C is also dropped). So an axis tilted in the free
+direction is still judged against a straight vertical cylinder: for B only, bottom
+(0.05, −0.20) and top (0.05, +0.20) give r = √(0.20² + 0.05²) = 0.206, position
+⌀0.412 > ⌀0.25: **OUT** (the Y tilt counts). The zone and lock walls are the same as
+for "C dropped" / "B dropped" with A kept.
+
+**What tilt would involve** (not implemented): with only B kept the zone may rotate
+about B's normal (X), so it can swing in the Y–Z plane and slide in Y; it stays fixed
+only in X. The best-fit line then passes through both endpoints' Y values for free, so
+only the X offsets matter: r = max(|dx_bottom|, |dx_top|) (for the example above ⌀0.1, IN).
+Symmetrically, C only: only the Y offsets matter. Doing it means:
+(1) a new fit in `fitZone` (a tilt flag on the free axis, closed form);
+(2) lock clamps (`lockDragFree`, `translateAxisFree`) wall only the held axis, with no
+spread wall on the free one;
+(3) an oblique zone drawn in 3D and the views (a tilted cylinder), plus the inset showing
+a band, not a circle;
+(4) the A-only note and table rewording, and tests for the new freedom table.
+It also changes what "dropping A" means (today: nothing), so it needs Sally's sign-off first.
 
 Tests: `tests/datums.test.js` (freedom table for all 8 combinations, best-fit
 closed form against brute force, every rule, bonus and rounding edges, lock and

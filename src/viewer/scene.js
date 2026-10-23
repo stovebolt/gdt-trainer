@@ -639,6 +639,10 @@ function buildFreedom(f, c, R) {
       g.add(fatLine([from, to], { color, width: 3, onTop: true }), arrowHead(from, to, 3.2, { color, width: 3, onTop: true }));
     }
   };
+  // Best-fit zone centre (automatic, display only): a small diamond on the top and bottom faces + the zone centreline.
+  const d = 1.6;
+  for (const z of [0, H]) g.add(fatLine([[c.x, c.y - d, z], [c.x + d, c.y, z], [c.x, c.y + d, z], [c.x - d, c.y, z], [c.x, c.y - d, z]], { color, width: 3, onTop: true }));
+  g.add(fatLine([[c.x, c.y, 0], [c.x, c.y, H]], { color, width: 1.5, dashed: true, dashSize: 0.8, gapSize: 0.6, onTop: true }));
   if (f.freeX) { slab(L / 2, c.y, L - 2, 2 * R); arrows(1, 0); }
   if (f.freeY) { slab(c.x, W / 2, 2 * R, W - 2); arrows(0, 1); }
   return g;

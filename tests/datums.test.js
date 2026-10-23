@@ -235,7 +235,7 @@ test('translateAxisFree fuzz: stays IN for every freedom', () => {
 // ---------------------------------------------------------------------------
 // Display strings
 // ---------------------------------------------------------------------------
-import { fcfHTML, datumSummary, DATUM_NOTES } from '../src/fcf.js';
+import { fcfHTML, datumSummary, DATUM_NOTES, NO_DATUM_TEXT, PERP_LABEL } from '../src/fcf.js';
 import { STATUS, DATUM_SHRINK_NOTE } from '../src/ui.js';
 
 test('FCF drops the cells of dropped references', () => {
@@ -254,7 +254,7 @@ test('datumSummary: wording for every case (Sally\'s rules)', () => {
   assert.equal(datumSummary(D('ABC')).badge, '');
   assert.equal(datumSummary(D('ABC')).slide, '');
   assert.equal(datumSummary(D('AB'), { dx: 0, dy: 0.2 }).badge, 'C dropped: zone slides in Y');
-  assert.equal(datumSummary(D('AB'), { dx: 0, dy: 0.2 }).slide, 'zone slides in Y · centre dy +0.2');
+  assert.equal(datumSummary(D('AB'), { dx: 0, dy: 0.2 }).slide, 'zone slides in Y · ◆ centre dy +0.2');
   assert.equal(datumSummary(D('AC')).badge, 'B dropped: zone slides in X');
   assert.equal(datumSummary(D('A')).badge, 'B, C dropped: zone slides in X and Y');
   assert.equal(datumSummary(D('A')).note, DATUM_NOTES.perp);
@@ -265,4 +265,12 @@ test('datumSummary: wording for every case (Sally\'s rules)', () => {
   assert.match(DATUM_NOTES.floats, /means nothing/);
   assert.equal(STATUS.NO_DATUMS, 'NO DATUMS');
   assert.match(DATUM_SHRINK_NOTE, /datum restored/);
+});
+
+test("Sally's rulings: wording for all-dropped and A-only", () => {
+  assert.equal(NO_DATUM_TEXT, 'No datum reference: position is undefined');
+  assert.ok(DATUM_NOTES.floats.startsWith(NO_DATUM_TEXT));
+  assert.equal(datumSummary(D('')).slide, 'zone floats free · no datum reference');
+  assert.equal(PERP_LABEL, '⌀ (acts like perpendicularity to A)');
+  assert.equal(datumSummary(D('A'), { dx: 0.1, dy: -0.2 }).slide, 'zone slides in X and Y · ◆ centre dx +0.1, dy −0.2');
 });

@@ -3,7 +3,7 @@
 import { SPEC, VIEW, PRESETS } from './config.js';
 import { fmt, fmtLimit, fmtUp, fmtSigned, fmtAgainst, fmtMargin } from './format.js';
 import { notJudged } from './tolerance.js';
-import { fcfHTML, fmtNote, MMC_SYM, LMC_SYM, modSym, datumSummary } from './fcf.js';
+import { fcfHTML, fmtNote, MMC_SYM, LMC_SYM, modSym, datumSummary, NO_DATUM_TEXT, PERP_LABEL } from './fcf.js';
 
 const SIZE_LIMITS = `⌀${fmt(SPEC.hole.mmc)}–${fmt(SPEC.hole.lmc)}`;
 /** Size note shown next to every verdict (same length IN / REJECT, so no layout jump). */
@@ -112,6 +112,8 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     const nod = res.verdict === 'NO_DATUMS';
     const na = rej || nod; // neutral: position not judged
     const slid = ds.freedom.slides;
+    const perp = ds.freedom.perpOnly; // A only: reads like a perpendicularity control
+    $('#pos-label').innerHTML = perp ? `<b>${PERP_LABEL}</b>, reported as 2r` : 'Position (reported as a <b>diameter</b> = 2r, not a radius)';
     const bon = state.modifier !== 'RFS';
     $('#tol-line').innerHTML = bon && rej
       ? `stated ⌀${fmt(sz.stated)} + bonus n/a <span class="muted">(size rejected)</span>`
@@ -160,13 +162,15 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#pos-value').textContent = nod ? '—' : `⌀${posShown}`;
     $('#pos-compare').innerHTML = nod ? '' : rej ? '<span class="muted">(info)</span>' : `${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}`;
     $('#pos-status').textContent = STATUS[res.verdict];
-    $('#pos-detail').textContent = nod ? 'not judged: no datums, the zone floats free' : rej ? `= 2 × r(${worst}) = 2 × ${fmtUp(res[worst].r)} · not judged: size rejected` : `= 2 × r(${worst}) = 2 × ${fmtAgainst(res[worst].r, R, res.inTolerance)} · margin ${fmtMargin(res.deviation, TOL, res.inTolerance)} mm`;
+    $('#pos-detail').textContent = nod ? NO_DATUM_TEXT : rej ? `= 2 × r(${worst}) = 2 × ${fmtUp(res[worst].r)} · not judged: size rejected` : `= 2 × r(${worst}) = 2 × ${fmtAgainst(res[worst].r, R, res.inTolerance)} · margin ${fmtMargin(res.deviation, TOL, res.inTolerance)} mm`;
     $('#mid').textContent = `mid-plane (z=5) offset: dx ${fmtSigned(res.mid.dx)}, dy ${fmtSigned(res.mid.dy)} · tilt ${fmt(res.tilt)}°`;
 
     const badge = document.getElementById('status-badge');
     badge.className = `status-badge ${nod ? 'na' : res.accept ? 'pass' : 'fail'}`;
-    const small = nod ? 'zone floats free: nothing locates the axis' : res.verdict === 'REJECT_SIZE' ? `hole ⌀${fmt(sz.actualSize)} outside ${SIZE_LIMITS}`
+    const small = nod ? NO_DATUM_TEXT : res.verdict === 'REJECT_SIZE' ? `hole ⌀${fmt(sz.actualSize)} outside ${SIZE_LIMITS}`
       : res.verdict === 'INVALID_TOL' ? 'stated ⌀0 needs MMC or LMC'
+      
+      : perp ? `perpendicularity to A ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${bon ? ` ${modSym(state.modifier)}` : ''}`
       : `position ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${bon ? ` ${modSym(state.modifier)}` : ''}`;
     badge.innerHTML = `${BADGE[res.verdict]}<small>${small}</small><span class="size-note">${sizeNote(sz)}</span>`;
     document.getElementById('mag-badge').textContent = `Zone & deviations drawn ×${state.magnification} (display only)`;
@@ -185,6 +189,7 @@ function createInset(svg, { onChange, clampOffset }) {
       <g id="i-grid"><circle class="grid" r="0.05"/><circle class="grid" r="0.1"/><circle class="grid" r="0.15"/><circle class="grid" r="0.2"/>
       <line class="grid" x1="${-HALF}" y1="0" x2="${HALF}" y2="0"/><line class="grid" x1="0" y1="${-HALF}" x2="0" y2="${HALF}"/></g>
       <g id="i-free" class="free" style="display:none"></g>
+      <path id="i-centre" class="centre" d="M0 -0.016 L0.016 0 L0 0.016 L-0.016 0Z" style="display:none"/>
       <path id="i-tp" class="tp" d="M-0.02 0H0.02M0 -0.02V0.02" style="display:none"/>
       <circle class="zone" r="${R}"/>
       <line class="axis" id="i-axis"/>
@@ -271,6 +276,9 @@ function createInset(svg, { onChange, clampOffset }) {
         (f.freeX ? `<rect class="band" x="${zc.x - HALF}" y="${zc.y - r}" width="${2 * HALF}" height="${2 * r}"/>${arrow(1, 0)}${arrow(-1, 0)}` : '') +
         (f.freeY ? `<rect class="band" x="${zc.x - r}" y="${zc.y - HALF}" width="${2 * r}" height="${2 * HALF}"/>${arrow(0, 1)}${arrow(0, -1)}` : '');
     }
+    const ctr = q('#i-centre');
+    ctr.style.display = f.slides ? '' : 'none';
+    ctr.setAttribute('transform', `translate(${zc.x} ${zc.y})`);
     // true position cross + label, only when the zone has slid away from it (and it is in view)
     const tp = q('#i-tp'), tpt = q('#t-tp');
     const away = f.slides && Math.hypot(zc.x, zc.y) > 0.02;
@@ -278,6 +286,7 @@ function createInset(svg, { onChange, clampOffset }) {
     tp.style.display = away && inView ? '' : 'none';
     tpt.style.display = tp.style.display;
     tpt.setAttribute('x', -0.05); tpt.setAttribute('y', 0.05);
+    q('#t-view').textContent = f.slides ? 'top view · ◆ auto best-fit zone centre' : 'top view (from +Z)';
     q('#t-view').setAttribute('x', zc.x - HALF + 0.008); q('#t-view').setAttribute('y', -zc.y - HALF + 0.022);
     q('#t-grid').setAttribute('x', zc.x - HALF + 0.008); q('#t-grid').setAttribute('y', -zc.y + HALF - 0.008);
     q('#t-grid').textContent = f.slides ? 'rings r = 0.05 / 0.1 / 0.15 / 0.2 mm from the slid zone centre' : 'grid rings r = 0.05 / 0.1 / 0.15 / 0.2 mm';
@@ -321,7 +330,7 @@ function template() {
   </header>
 
   <section id="overall" class="overall">
-    <div class="pos-label">Position (reported as a <b>diameter</b> = 2r, not a radius)</div>
+    <div id="pos-label" class="pos-label">Position (reported as a <b>diameter</b> = 2r, not a radius)</div>
     <div class="pos-line"><span id="pos-value"></span> <span id="pos-compare"></span> <span id="pos-status"></span></div>
     <div id="pos-detail" class="muted"></div>
     <div id="tol-line" class="tol-line"></div>

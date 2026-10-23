@@ -403,6 +403,9 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
     await page.click('#datum-C'); await page.waitForTimeout(300);
     await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.4, dy: -0.3 }, top: { dx: 0.4, dy: -0.3 } }));
     r = await R(); ckV('B and C dropped (A only): any shift is IN, FCF = A, perpendicularity note, inset band cross', r.verdict === 'IN' && r.chip === 'A' && /perpendicularity/.test(r.note) && /X and Y/.test(r.slide) && r.dev === 0, r);
+    { const w = await page.evaluate(() => ({ label: document.getElementById('pos-label').innerText, badge: document.getElementById('status-badge').innerText, centre: getComputedStyle(document.getElementById('i-centre')).display, slide: document.getElementById('slide-line').innerText }));
+      ckV('A only: readout labelled "⌀ (acts like perpendicularity to A)" (not "position ⌀"); centre marker shown', w.label.startsWith('⌀ (acts like perpendicularity to A)') && !/Position/.test(w.label) && /perpendicularity to A ⌀/.test(w.badge) && !/position ⌀/.test(w.badge) && w.centre !== 'none' && /◆ centre/.test(w.slide), w); }
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.4, dy: -0.3 }, top: { dx: 0.4, dy: -0.3 } }));
     for (const [d, want] of [[0.1, 'IN'], [0.13, 'OUT']]) {
       await page.evaluate((d) => window.gdt.setAxis({ bottom: { dx: -d, dy: 0 }, top: { dx: d, dy: 0 } }), d);
       r = await R(); ckV(`A only: tilt ±${d} (spread ${2 * d}) is ${want} like perpendicularity ⌀${(2 * d).toFixed(2)} vs ⌀0.25`, r.verdict === want, { v: r.verdict, pos: r.pos, cmp: r.cmp });
@@ -439,6 +442,8 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
     await page.click('#datum-B'); await page.click('#datum-C'); await page.waitForTimeout(300);
     r = await R();
     ckV('A, B, C dropped: NO DATUMS (neutral), zone floats free, "means nothing" note, rows n/a, FCF has no datum cells', r.verdict === 'NO_DATUMS' && r.status === 'NO DATUMS' && r.chip === '' && r.scene === '' && /means nothing/.test(r.note) && r.rows.every((c) => c === 'na') && /na/.test(r.insetZone), r);
+    { const w = await page.evaluate(() => ({ detail: document.getElementById('pos-detail').innerText, badge: document.getElementById('status-badge').innerText, cls: document.getElementById('status-badge').className, overall: document.getElementById('overall').className, centre: getComputedStyle(document.getElementById('i-centre')).display }));
+      ckV('all dropped: wording "No datum reference: position is undefined" in the panel and the badge; neutral gray; no centre marker', w.detail === 'No datum reference: position is undefined' && w.badge.includes('No datum reference: position is undefined') && /na/.test(w.cls) && /na/.test(w.overall) && !/pass|fail/.test(w.cls + w.overall) && w.centre === 'none', w); }
     await page.screenshot({ path: 'screenshots/datum_none.png' });
     // Lock in tolerance with freed axes (mouse)
     await reset();

@@ -270,3 +270,5 @@ button:hover { background: #e2e8f0; }
 }
 /* Landscape phones: the position detail line wraps for long numbers; reserve both lines so the panel never shifts */
 @media (max-height: 500px) { #pos-detail { min-height: 2.75em; } }
+#inset .centre { fill: #fff; stroke: #c026d3; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.slide-line { font-size: 12.5px; }

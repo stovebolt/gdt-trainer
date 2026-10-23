@@ -22,3 +22,8 @@ export function fromVisualDelta(vdx, vdy, magnification) {
 export function visualZoneRadius(tolerance, magnification) {
   return (tolerance / 2) * magnification;
 }
+
+/** Phones cap the exaggeration (a slide of a few tenths at ×80 throws the hole off the small screen). */
+export const PHONE_MAX_MAGNIFICATION = 40;
+export const maxMagnificationFor = (phone, max = 80) => (phone ? Math.min(max, PHONE_MAX_MAGNIFICATION) : max);
+export const clampMagnification = (m, phone, { min = 1, max = 80 } = {}) => Math.max(min, Math.min(maxMagnificationFor(phone, max), Math.round(m)));

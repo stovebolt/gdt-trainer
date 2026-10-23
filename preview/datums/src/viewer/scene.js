@@ -10,6 +10,7 @@ import { fcfHTML, fmtNote } from '../fcf.js';
 import { toVisualXY, visualZoneRadius } from '../exaggeration.js';
 import { viewPose, effectiveDistance } from '../views.js';
 import { notJudged } from '../tolerance.js';
+import { reframePlan } from '../framing.js';
 import { COLORS, fatLine, circlePoints, arrowHead, label, disposeObject, setLineResolution } from './primitives.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z-up, matching the drawing frame
@@ -52,6 +53,7 @@ const VIEW_DIST = 120; // camera distance for ortho views (only affects clipping
 const SNAP_MS = 420;
 
 export function createViewer(container) {
+  let keyPts = [], reframeAt = 0, reframeTries = 0, pointerDown = false; // auto-reframe state (see reframe())
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0xf8fafc);
@@ -152,7 +154,7 @@ export function createViewer(container) {
       if (camera === ortho) { ortho.zoom = z0 + (z1 - z0) * e; ortho.updateProjectionMatrix(); }
       controls.update();
       layoutKey = '';
-      if (k >= 1) anim = null;
+      if (k >= 1) { anim = null; if (reframeTries < 3) reframeAt = performance.now() + 120; }
     };
     if (ms <= 0) anim(performance.now() + 1);
   }
@@ -183,10 +185,11 @@ export function createViewer(container) {
       animateTo(viewPose(name, freeAreaTarget(name, halfH), VIEW_DIST), { halfH, ms });
     }
     viewName = name;
+    reframeTries = 0; reframeAt = performance.now() + 100; // slid zone may sit off the snapped view
     onViewChange();
   }
   function resetCamera(view = DEFAULT_CAMERA, name = view === DEFAULT_CAMERA ? '3d' : null) {
-    anim = null;
+    anim = null; reframeAt = 0; // manual fallback: Reset camera is final until the axis changes again
     setProjection('persp');
     camera.position.set(...view.position);
     controls.target.set(...view.target);
@@ -234,7 +237,45 @@ export function createViewer(container) {
     leader.visible = showDrawing;
     dynamic.add(leader);
     handles.place(vb, vt, result);
+    keyPts = [[zc.x, zc.y, 0], [zc.x, zc.y, H], [vb.x, vb.y, 0], [vt.x, vt.y, H], [(vb.x + vt.x) / 2, (vb.y + vt.y) / 2, H / 2]].map((a) => new THREE.Vector3(...a));
+    reframeTries = 0; reframeAt = performance.now() + 250; // auto-reframe after the change settles
     layoutKey = ''; // force callout layout
+  }
+
+  // ---- Auto-reframe: keep the hole in view after a big slide (pan, then dolly out only if needed) ----
+  renderer.domElement.addEventListener('pointerdown', () => { pointerDown = true; });
+  for (const ev of ['pointerup', 'pointercancel']) window.addEventListener(ev, () => { pointerDown = false; reframeAt = reframeAt ? performance.now() + 150 : 0; });
+  /** Returns true if it started a camera move. Never rotates; never runs mid-drag. */
+  function reframe() {
+    const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+    if (!w || !h || !keyPts.length) return false;
+    camera.updateMatrixWorld();
+    const cr = renderer.domElement.getBoundingClientRect();
+    const rb = (id) => { const e = document.getElementById(id); if (!e || !e.offsetWidth) return null; const b = e.getBoundingClientRect(); return { t: b.top - cr.top, b: b.bottom - cr.top }; };
+    const phone = isPhone();
+    let top = 8, bot = h - 8;
+    if (phone) { // the badge + view row above, the exaggeration badge below
+      const sb = rb('status-badge'), vr = rb('view-bar'), mg = rb('mag-badge');
+      top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + 40; // + room for the TOP tag above its handle
+      if (mg) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag
+    }
+    const region = { l: phone ? 100 : 90, r: w - (phone ? 150 : 170), t: top, b: bot };
+    if (region.r - region.l < 40 || region.b - region.t < 40) return false;
+    const px = (v) => { const n = v.clone().project(camera); return { x: ((n.x + 1) / 2) * w, y: ((1 - n.y) / 2) * h }; };
+    const ctr = px(controls.target);
+    const plan = reframePlan(keyPts.map(px), region, ctr);
+    if (!plan) return false;
+    const dist = camera.position.distanceTo(controls.target);
+    const halfH = camera === ortho ? ortho.top / ortho.zoom : dist * tanHalf();
+    const mpp = ((2 * halfH) / h) * plan.scale; // world mm per px after the dolly
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const shift = right.multiplyScalar(-plan.dx * mpp).addScaledVector(up, plan.dy * mpp);
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const target = controls.target.clone().add(shift);
+    const pos = controls.target.clone().addScaledVector(dir, dist * plan.scale).add(shift);
+    animateTo({ position: pos.toArray(), target: target.toArray() }, { halfH: camera === ortho ? halfH * plan.scale : null, ms: 320 });
+    return true;
   }
 
   // Place callout labels + leaders (see CALLOUT_PX / CALLOUT_BLEND).
@@ -435,6 +476,7 @@ export function createViewer(container) {
 
   function frame(now) {
     if (anim) anim(now);
+    if (reframeAt && !anim && !pointerDown && performance.now() >= reframeAt) { reframeAt = 0; if (reframeTries++ < 3) reframe(); }
     controls.update();
     layoutCallouts();
     renderer.render(scene, camera);
@@ -444,7 +486,7 @@ export function createViewer(container) {
   requestAnimationFrame(frame);
 
   return {
-    scene, renderer, controls, handles, update, setDrawing, setDatumsDim, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement,
+    scene, renderer, controls, handles, update, setDrawing, setDatumsDim, reframe, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement,
     get camera() { return camera; },
     setView, setProjection, onView: (f) => { viewListeners.push(f); },
     get view() { return { view: viewName, ortho: camera === ortho, animating: !!anim }; },
@@ -639,6 +681,10 @@ function buildFreedom(f, c, R) {
       g.add(fatLine([from, to], { color, width: 3, onTop: true }), arrowHead(from, to, 3.2, { color, width: 3, onTop: true }));
     }
   };
+  // Best-fit zone centre (automatic, display only): a small diamond on the top and bottom faces + the zone centreline.
+  const d = 1.6;
+  for (const z of [0, H]) g.add(fatLine([[c.x, c.y - d, z], [c.x + d, c.y, z], [c.x, c.y + d, z], [c.x - d, c.y, z], [c.x, c.y - d, z]], { color, width: 3, onTop: true }));
+  g.add(fatLine([[c.x, c.y, 0], [c.x, c.y, H]], { color, width: 1.5, dashed: true, dashSize: 0.8, gapSize: 0.6, onTop: true }));
   if (f.freeX) { slab(L / 2, c.y, L - 2, 2 * R); arrows(1, 0); }
   if (f.freeY) { slab(c.x, W / 2, 2 * R, W - 2); arrows(0, 1); }
   return g;

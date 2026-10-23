@@ -2,6 +2,7 @@
 import { SPEC, VIEW, PRESETS } from './config.js';
 import { evaluatePart, allowedTolerance, lockDrag, shrinkCausedOut, translateAxis, datumFreedom, lockDragFree, translateAxisFree } from './tolerance.js';
 import { fcfHTML, datumSummary } from './fcf.js';
+import { clampMagnification, maxMagnificationFor } from './exaggeration.js';
 import { createViewer, isPhone } from './viewer/scene.js';
 import { attachDrag } from './interaction.js';
 import { createUI } from './ui.js';
@@ -54,7 +55,7 @@ const ui = createUI(document.getElementById('panel'), {
   clampOffset,
   onChange: (patch) => setAxis(patch, { user: true }),
   onPreset: (id) => applyPreset(id),
-  onMagnification: (m) => { state.magnification = m; refresh(); },
+  onMagnification: (m) => setMagnification(m),
   onXray: (on) => { state.xray = on; refresh(); },
   onDrawing: (on) => { state.drawing = on; refresh(); },
   onSize: (v) => setSize(v),
@@ -76,6 +77,9 @@ attachDrag({
   onChange: (patch) => setAxis(patch, { user: true }),
   clampOffset,
 });
+
+// Phones cap the exaggeration (see exaggeration.js); other screens keep the full range.
+const setMagnification = (m) => { state.magnification = clampMagnification(m, isPhone(), { min: VIEW.minMagnification, max: VIEW.maxMagnification }); refresh(); };
 
 const allowedNow = () => allowedTolerance({ stated: state.stated, modifier: state.modifier, actualSize: state.size, mmc: SPEC.hole.mmc, lmc: SPEC.hole.lmc }).allowed;
 
@@ -168,7 +172,10 @@ function applyPreset(id) {
 
 let last;
 function refresh() {
+  const cap = maxMagnificationFor(isPhone(), VIEW.maxMagnification);
+  if (state.magnification > cap) state.magnification = cap; // e.g. rotated/resized into a phone layout
   last = evaluate();
+  last.magMax = cap;
   viewer.update(state, last);
   viewer.setDrawing(state.drawing);
   document.getElementById('fcf-chip').innerHTML = fcfHTML(state);
@@ -221,7 +228,9 @@ window.gdt = {
   setAxis,
   applyPreset,
   result: () => last,
-  setMagnification: (m) => { state.magnification = m; refresh(); },
+  setMagnification,
+  magnificationMax: () => maxMagnificationFor(isPhone(), VIEW.maxMagnification),
+  reframe: () => viewer.reframe(),
   setDrawing: (on) => { state.drawing = !!on; refresh(); },
   setSize,
   setModifier,

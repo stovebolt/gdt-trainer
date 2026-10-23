@@ -27,8 +27,12 @@ export function fcfHTML({ stated, modifier, datums }, cls = 'fcf') {
 export const DATUM_NOTES = {
   aDropped: 'Dropping A alone changes nothing visible here.',
   perp: 'A only: the zone slides in X and Y but stays ⟂ A, so it acts like a perpendicularity control.',
-  floats: 'No datums: the zone floats free, so for a single hole this control means nothing.',
+  floats: 'No datum reference: position is undefined. A single hole has nothing to locate it, so this control means nothing.',
 };
+/** Verdict wording when A, B and C are all dropped (Sally). */
+export const NO_DATUM_TEXT = 'No datum reference: position is undefined';
+/** Readout label when only A is kept (B and C dropped), instead of "position ⌀" (Sally). */
+export const PERP_LABEL = '⌀ (acts like perpendicularity to A)';
 const axes = (f) => [f.freeX && 'X', f.freeY && 'Y'].filter(Boolean).join(' and ');
 
 /**
@@ -43,10 +47,10 @@ export function datumSummary(datums, zone = { dx: 0, dy: 0 }) {
   const list = dropped.join(', ');
   let badge = '', slide = '', note = '';
   if (dropped.length) badge = f.floats ? `${list} dropped: zone floats free` : f.slides ? `${list} dropped: zone slides in ${axes(f)}` : `${list} dropped: no visible change`;
-  if (f.floats) { slide = 'zone floats free · no datums'; note = DATUM_NOTES.floats; }
+  if (f.floats) { slide = 'zone floats free · no datum reference'; note = DATUM_NOTES.floats; }
   else if (f.slides) {
     const c = [f.freeX && `dx ${fmtSigned(zone.dx)}`, f.freeY && `dy ${fmtSigned(zone.dy)}`].filter(Boolean).join(', ');
-    slide = `zone slides in ${axes(f)} · centre ${c}`;
+    slide = `zone slides in ${axes(f)} · ◆ centre ${c}`;
     if (f.perpOnly) note = DATUM_NOTES.perp;
   }
   if (f.aDropped && !f.slides) note = DATUM_NOTES.aDropped;

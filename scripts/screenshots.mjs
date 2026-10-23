@@ -445,6 +445,32 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
     { const w = await page.evaluate(() => ({ detail: document.getElementById('pos-detail').innerText, badge: document.getElementById('status-badge').innerText, cls: document.getElementById('status-badge').className, overall: document.getElementById('overall').className, centre: getComputedStyle(document.getElementById('i-centre')).display }));
       ckV('all dropped: wording "No datum reference: position is undefined" in the panel and the badge; neutral gray; no centre marker', w.detail === 'No datum reference: position is undefined' && w.badge.includes('No datum reference: position is undefined') && /na/.test(w.cls) && /na/.test(w.overall) && !/pass|fail/.test(w.cls + w.overall) && w.centre === 'none', w); }
     await page.screenshot({ path: 'screenshots/datum_none.png' });
+    // ---- Explain this setup (desktop: open by default, updates live) ----
+    {
+      const reset = () => page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setStated(0.25); window.gdt.setSize(10.1); window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); });
+      await reset(); await page.click('#view-row [data-view="3d"]'); await page.waitForTimeout(500);
+      const X = () => page.evaluate(() => { const b = document.getElementById('ex-body'); return { open: document.getElementById('explain').open, cfg: document.getElementById('ex-config').innerText, text: b.innerText.replace(/\s+/g, ' '), tags: [...b.querySelectorAll('.ex-tag')].map((t) => t.className.replace('ex-tag ', '')).join(','), cites: b.querySelectorAll('.ex-cite').length, practiceCited: b.querySelectorAll('.ex-line-practice .ex-cite').length, verdict: window.gdt.result().verdict, h: Math.round(b.getBoundingClientRect().height), next: Math.round(document.querySelector('#explain-wrap + section').getBoundingClientRect().top + document.getElementById('panel').scrollTop) }; });
+      let x = await X();
+      ckV('explainer: open by default on desktop; shows A | B | C · RFS with Controls / Free / Better way', x.open && /A \| B \| C · RFS/.test(x.cfg) && /Controls X and Y location, axis square to A\./.test(x.text) && /None, this is the complete frame\./.test(x.text), x);
+      const seen = {}; const nexts = new Set();
+      for (const [name, d] of Object.entries({ ABC: 'ABC', AB: 'AB', AC: 'AC', A: 'A', BC: 'BC', B: 'B', C: 'C', none: '' })) for (const m of ['RFS', 'MMC', 'LMC']) {
+        await page.evaluate(([d, m]) => { window.gdt.setDatums({ A: d.includes('A'), B: d.includes('B'), C: d.includes('C') }); window.gdt.setModifier(m); window.gdt.setSize(10.1); }, [d, m]);
+        await page.waitForTimeout(40); x = await X(); nexts.add(x.next); seen[name + m] = x.cfg;
+      }
+      ckV('explainer: panel stable across all 8 datum configs x RFS/MMC/LMC (section below never moves)', nexts.size === 1, [...nexts]);
+      await page.evaluate(() => { window.gdt.setModifier('RFS'); window.gdt.setDatums({ A: true, B: false, C: false }); }); await page.waitForTimeout(150); x = await X();
+      ckV('explainer A only: perpendicularity advice shown as a Practice (not a Rule); citations only on Rule lines', /Use perpendicularity to A: it says what is controlled, while position implies a location that is not\./.test(x.text) && /ex-practice/.test(x.tags) && /ex-rule/.test(x.tags) && x.practiceCited === 0 && x.cites >= 2, x);
+      await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.screenshot({ path: 'screenshots/explain_a_only.png' });
+      for (const [k, d] of [['B', { A: false, B: true, C: false }], ['C', { A: false, B: false, C: true }]]) {
+        await page.evaluate((d) => window.gdt.setDatums(d), d); await page.waitForTimeout(150); x = await X();
+        ckV(`explainer ${k} only (A dropped): one shared entry, "Simplified, this lesson keeps the zone vertical.", zone stays vertical (no tilt built)`, x.text.includes('Simplified, this lesson keeps the zone vertical.') && x.text.includes(`tilting about ${k}'s normal`) && x.text.includes('Add A first.'), x.text.slice(0, 200));
+        if (k === 'B') { await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.screenshot({ path: 'screenshots/explain_b_only.png' }); }
+      }
+      // advice never changes IN/OUT: toggling the panel and changing nothing else keeps the verdict
+      const v1 = (await X()).verdict; await page.evaluate(() => { document.getElementById('explain').open = false; }); const v2 = (await X()).verdict; await page.evaluate(() => { document.getElementById('explain').open = true; });
+      ckV('explainer is advice only: collapsing / expanding it never changes the verdict', v1 === v2, [v1, v2]);
+      await reset();
+    }
     // Lock in tolerance with freed axes (mouse)
     await reset();
     await page.click('#view-row [data-view="top"]'); await page.waitForTimeout(700);

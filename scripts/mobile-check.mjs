@@ -519,6 +519,59 @@ for (const name of DEVICES) {
         }
         await page.evaluate(() => { window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('centered'); window.gdt.setView('3d', { ms: 0 }); }); await home(); await page.waitForTimeout(500);
       }
+      // ---- Explain this setup (collapsed on phones, tap to expand; Sally's copy; advice never changes IN/OUT) ----
+      {
+        const isPh = await page.evaluate(() => window.matchMedia('(max-width: 700px), (max-height: 500px)').matches);
+        await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setSize(10.1); window.gdt.setMagnification(24); window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('diag-out'); window.gdt.setView('3d', { ms: 0 }); });
+        await page.reload({ waitUntil: 'networkidle' }); await page.waitForFunction(() => window.gdt?.ready === true); await page.waitForTimeout(500);
+        await page.evaluate(() => window.gdt.applyPreset('diag-out'));
+        const X = () => page.evaluate(() => { const d = document.getElementById('explain'), b = document.getElementById('ex-body'), s = document.getElementById('ex-summary'); const r = (e) => e.getBoundingClientRect(); return { open: d.open, sumH: Math.round(r(s).height), sumW: Math.round(r(s).width), cfg: document.getElementById('ex-config').innerText, text: b.innerText.replace(/\s+/g, ' '), overflow: b.scrollWidth > b.clientWidth + 1, tags: [...b.querySelectorAll('.ex-tag')].map((t) => t.className.replace('ex-tag ', '') + ':' + t.innerText).join(','), cites: b.querySelectorAll('.ex-cite').length, rulesCited: b.querySelectorAll('.ex-line-rule .ex-cite').length, practiceCited: b.querySelectorAll('.ex-line-practice .ex-cite').length, verdict: window.gdt.result().verdict, bodyShown: r(d).height > r(s).height + 8, sumX: r(s).left >= 0 && r(s).right <= innerWidth + 0.5 }; });
+        let x = await X();
+        check(`explainer: ${isPh ? 'collapsed by default on phones' : 'open by default off phones'}; summary tap target >= 40px, inside the screen, shows the setup`, x.open === !isPh && x.sumH >= 40 && x.sumX && /A \| B \| C · RFS/.test(x.cfg) && (isPh ? !x.bodyShown : x.bodyShown), JSON.stringify({ open: x.open, sumH: x.sumH, cfg: x.cfg, shown: x.bodyShown }));
+        await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.waitForTimeout(250);
+        await page.screenshot({ path: `${OUT}/${sl}-explain-collapsed-${TAG}.png` });
+        const v0 = x.verdict;
+        if (isPh) { await tapSel('#ex-summary'); await page.waitForTimeout(200); }
+        x = await X();
+        check('explainer: tap on the summary expands it (Controls / Free / Better way / Material condition), verdict untouched', x.open && x.bodyShown && /Controls X and Y location, axis square to A\./.test(x.text) && /Free Nothing\./.test(x.text) && /Better way/.test(x.text) && /Material condition: RFS/.test(x.text) && x.verdict === v0, x.text.slice(0, 220));
+        const cases = [
+          ['a-only', { A: true, B: false, C: false }, /A only/, [/Controls Axis direction only\./, /Free X and Y\./, /With no location datums, the basic dimensions locate nothing\./, /Use perpendicularity to A: it says what is controlled, while position implies a location that is not\./]],
+          ['b-only', { A: false, B: true, C: false }, /B only/, [/Location across B, axis parallel to B\./, /Sliding along B and tilting about B's normal\./, /Simplified, this lesson keeps the zone vertical\./, /Add A first\./]],
+          ['c-only', { A: false, B: false, C: true }, /C only/, [/Location across C, axis parallel to C\./, /Sliding along C and tilting about C's normal\./, /Simplified, this lesson keeps the zone vertical\./, /Add A first\./]],
+          ['ab', { A: true, B: true, C: false }, /A \| B \(C dropped\)/, [/Axis square to A, X location\./, /Sliding in Y\./, /Add C unless Y is free on purpose\./]],
+          ['ac', { A: true, B: false, C: true }, /A \| C \(B dropped\)/, [/Axis square to A, Y location\./, /Sliding in X\./, /Add B unless X is free on purpose\./]],
+          ['bc', { A: false, B: true, C: true }, /B \| C \(A dropped\)/, [/axis held parallel to B and C \(vertical\)\./, /Z \(not visible on a through hole\)\./, /List A first: the hole is square to A and A gives a stable seat\./]],
+          ['none', { A: false, B: false, C: false }, /No datums/, [/Position is undefined: nothing to measure the basic dimensions from\. Gray, no IN\/OUT\./, /Reference at least A, and B and C to locate\./]],
+        ];
+        for (const [tag, d, cfgRe, lines] of cases) {
+          await page.evaluate((d) => window.gdt.setDatums(d), d); await page.waitForTimeout(200);
+          x = await X();
+          const ok = cfgRe.test(x.cfg) && lines.every((re) => re.test(x.text)) && !x.overflow && x.open && x.bodyShown && x.practiceCited === 0 && x.tags.includes('ex-practice:');
+          check(`explainer ${tag}: Sally's text verbatim, [Rule]/[Practice] tags, citations on rules only, no horizontal overflow`, ok, JSON.stringify({ cfg: x.cfg, tags: x.tags, overflow: x.overflow, text: x.text.slice(0, 200) }));
+          if (['a-only', 'b-only'].includes(tag)) {
+            await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.waitForTimeout(250);
+            await page.screenshot({ path: `${OUT}/${sl}-explain-${tag}-open-${TAG}.png` });
+          }
+        }
+        // MMC / LMC copy, same panel
+        for (const [m, re] of [['MMC', /Bonus = size minus smallest hole\./], ['LMC', /Bonus = largest hole minus size\./], ['RFS', /Tolerance fixed at stated value\./]]) {
+          await page.evaluate((m) => { window.gdt.setModifier(m); if (m !== 'RFS') window.gdt.setSize(10.1); }, m); await page.waitForTimeout(200);
+          x = await X();
+          check(`explainer ${m}: material-condition lines + zero-tolerance rule`, re.test(x.text) && /Zero tolerance only at MMC\/LMC\./.test(x.text) && x.cites >= 2, x.text.slice(-260));
+        }
+        await page.evaluate(() => { window.gdt.setModifier('RFS'); window.gdt.setDatums({ A: true, B: true, C: true }); });
+        // panel stays put with the explainer open, across every datum state and every modifier
+        const tops = [], docs = []; globalThis.__tm = {};
+        for (const d of [{ A: 1, B: 1, C: 1 }, { A: 1, B: 1, C: 0 }, { A: 1, B: 0, C: 1 }, { A: 1, B: 0, C: 0 }, { A: 0, B: 1, C: 1 }, { A: 0, B: 1, C: 0 }, { A: 0, B: 0, C: 1 }, { A: 0, B: 0, C: 0 }]) for (const m of ['RFS', 'MMC', 'LMC']) {
+          await page.evaluate(([d, m]) => { window.gdt.setDatums({ A: !!d.A, B: !!d.B, C: !!d.C }); window.gdt.setModifier(m); window.gdt.setSize(10.1); }, [d, m]);
+          await page.waitForTimeout(40);
+          const t = await page.evaluate(() => { const e = document.querySelector('#explain-wrap + section'); const w = document.getElementById('explain-wrap').getBoundingClientRect(); return [Math.round(e.getBoundingClientRect().top + scrollY + document.getElementById('panel').scrollTop), Math.round(w.height)]; });
+          tops.push(t[0]); docs.push(t[1]); (globalThis.__tm ||= {})[m] = ((globalThis.__tm ||= {})[m] || new Set()).add(t[0]);
+        }
+        check('panel layout stable with the explainer open: all 8 datum states x RFS/MMC/LMC (section below never moves)', Object.values(globalThis.__tm).every((v) => v.size === 1) && new Set(docs).size === 1, `explainer box height ${[...new Set(docs)]}; section-below top per modifier ${JSON.stringify(Object.fromEntries(Object.entries(globalThis.__tm).map(([k, v]) => [k, [...v]])))} (RFS vs MMC/LMC differ 3px above the datum block already: teach-line)`);
+        await page.evaluate(() => { window.gdt.setModifier('RFS'); window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('centered'); });
+        await home(); await page.waitForTimeout(300);
+      }
       // panel stays put: the section after the datum block does not move across every datum state
       const tops = [];
       for (const c of [{ A: 1, B: 1, C: 1 }, { A: 1, B: 1, C: 0 }, { A: 1, B: 0, C: 1 }, { A: 1, B: 0, C: 0 }, { A: 0, B: 1, C: 1 }, { A: 0, B: 0, C: 0 }]) {

@@ -3,6 +3,8 @@
 import { SPEC, VIEW, PRESETS } from './config.js';
 import { fmt, fmtLimit, fmtUp, fmtSigned, fmtAgainst, fmtMargin } from './format.js';
 import { notJudged } from './tolerance.js';
+import { explainFor, explainHTML } from './explain.js';
+import { UI_TEXT } from './explain-copy.js';
 import { fcfHTML, fmtNote, MMC_SYM, LMC_SYM, modSym, datumSummary, NO_DATUM_TEXT, PERP_LABEL } from './fcf.js';
 
 const SIZE_LIMITS = `⌀${fmt(SPEC.hole.mmc)}–${fmt(SPEC.hole.lmc)}`;
@@ -73,6 +75,22 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
   });
   let lastStated = '';
 
+  // --- Explain this setup: collapsed on phones, open on larger screens ----------
+  const explain = $('#explain');
+  explain.open = !window.matchMedia('(max-width: 700px), (max-height: 500px)').matches;
+  const EX_CONFIGS = [{}, { C: false }, { B: false }, { B: false, C: false }, { A: false }, { A: false, B: false }, { A: false, C: false }, { A: false, B: false, C: false }];
+  let exWidth = -1;
+  // Reserve the tallest explainer text (all configs x RFS/MMC/LMC) so the panel never shifts when the setup changes.
+  function reserveExplainHeight() {
+    const sz = $('#ex-sizer'), w = sz.offsetWidth;
+    if (w === exWidth || !w) return;
+    exWidth = w;
+    let h = 0;
+    for (const d of EX_CONFIGS) for (const m of ['RFS', 'MMC', 'LMC']) { sz.innerHTML = explainHTML(explainFor(d, m), m); h = Math.max(h, sz.offsetHeight); }
+    sz.innerHTML = '';
+    $('#ex-body').style.minHeight = `${h}px`;
+  }
+
   const inset = createInset($('#inset'), { onChange, clampOffset });
 
   function render(state, res) {
@@ -94,6 +112,10 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#shrink-note').style.visibility = res.shrinkNote ? 'visible' : 'hidden';
     const ds = datumSummary(state.datums, res.zone);
     for (const d of ['A', 'B', 'C']) $(`#datum-${d}`).setAttribute('aria-pressed', String(state.datums[d]));
+    const ex = explainFor(state.datums, state.modifier);
+    $('#ex-config').textContent = `${ex.label} · ${state.modifier}`;
+    $('#ex-body').innerHTML = explainHTML(ex, state.modifier);
+    reserveExplainHeight();
     $('#slide-line').textContent = ds.slide || '\u00a0';
     $('#slide-line').style.visibility = ds.slide ? 'visible' : 'hidden';
     $('#datum-note').textContent = ds.note || '\u00a0';
@@ -363,6 +385,14 @@ function template() {
     </div>
     <div id="slide-line" class="slide-line" style="visibility:hidden">\u00a0</div>
     <div id="datum-note" class="datum-note" style="visibility:hidden">\u00a0</div>
+  </section>
+
+  <section id="explain-wrap" class="explain-wrap">
+    <details id="explain" class="explain">
+      <summary id="ex-summary"><span class="ex-title">${UI_TEXT.title}</span><span id="ex-config" class="ex-config"></span></summary>
+      <div id="ex-body" class="ex-body"></div>
+    </details>
+    <div id="ex-sizer" class="ex-body ex-sizer" aria-hidden="true"></div>
   </section>
 
   <section>

@@ -32,12 +32,12 @@ for (const font of ['', 'DejaVu Sans, Verdana, sans-serif']) for (const width of
   // datum states (A/B/C toggles): nothing in the panel moves between IN / OUT / NO DATUMS
   if (await p.evaluate(() => typeof window.gdt.setDatums === 'function')) {
     await p.evaluate(() => { window.gdt.setModifier('RFS'); window.gdt.setSize(10.1); window.gdt.setAxis({ bottom: { dx: 0.1, dy: 0.2 }, top: { dx: 0.1, dy: 0.2 } }); });
-    const dk = [...keys, 'datums', 'afterDatums'];
+    const dk = [...keys, 'datums', 'afterDatums', 'explain', 'afterExplain'];
     const dsnap = () => p.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map((v) => +v.toFixed(2)).join(','); };
-      return { panel: r('#panel'), overall: r('.overall'), line: r('.pos-line'), after: r('.pos-line + *'), next: r('.overall + section'), datums: r('#datums'), afterDatums: r('#datums + section'), text: document.getElementById('pos-status').textContent }; });
+      return { panel: r('#panel'), overall: r('.overall'), line: r('.pos-line'), after: r('.pos-line + *'), next: r('.overall + section'), datums: r('#datums'), afterDatums: r('#datums + section'), explain: r('#explain-wrap'), afterExplain: r('#explain-wrap + section'), text: document.getElementById('pos-status').textContent }; });
     const res = {};
-    for (const [k, d] of Object.entries({ all: 'ABC', C: 'AB', B: 'AC', BC: 'A', A: 'BC', B_only: 'B', none: '' })) {
-      await p.evaluate((d) => window.gdt.setDatums({ A: d.includes('A'), B: d.includes('B'), C: d.includes('C') }), d);
+    for (const [k, d, m] of [['all', 'ABC', 'RFS'], ['C', 'AB', 'MMC'], ['B', 'AC', 'LMC'], ['BC', 'A', 'RFS'], ['A', 'BC', 'MMC'], ['B_only', 'B', 'LMC'], ['C_only', 'C', 'RFS'], ['none', '', 'MMC']]) {
+      await p.evaluate(([d, m]) => { window.gdt.setModifier(m); window.gdt.setSize(10.1); window.gdt.setDatums({ A: d.includes('A'), B: d.includes('B'), C: d.includes('C') }); }, [d, m]);
       await p.waitForTimeout(100); res[k] = await dsnap();
     }
     const first = Object.values(res)[0];

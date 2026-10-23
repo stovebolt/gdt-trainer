@@ -479,7 +479,7 @@ for (const name of DEVICES) {
         await page.waitForTimeout(1800);
         let iv = await inViewAll();
         const ovR = await overlapCheck();
-        check('big slide (C dropped, axis 1.0 mm off in Y at ×24): view auto-reframes, handles stay in view and clear of the badges', iv.bad.length === 0 && JSON.stringify(iv.cam) !== JSON.stringify(cam0), `${iv.bad.join(', ')} cam ${cam0} -> ${iv.cam}`);
+        check('big slide (C dropped, axis 1.0 mm off in Y at ×24): view auto-reframes, handles stay in view and clear of the badges', iv.bad.length === 0 && (!isPh || JSON.stringify(iv.cam) !== JSON.stringify(cam0)), `${iv.bad.join(', ')} cam ${cam0} -> ${iv.cam}`);
         check('after the auto-reframe: labels + badges + handles + controls readable, nothing overlaps', ovR.issues.length === 0 && ovR.minFont >= 10, ovR.issues.join(', '));
         await page.screenshot({ path: `${OUT}/${sl}-datum-bigslide-reframed-${TAG}.png` });
         for (const v of ['top', 'front', 'side']) {

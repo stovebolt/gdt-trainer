@@ -491,8 +491,8 @@ for (const name of DEVICES) {
         // Reset camera stays a manual fallback: returns to the framed default and does not fight back
         await page.evaluate(() => document.getElementById('reset-cam').scrollIntoView({ block: 'center' })); await tapSel('#reset-cam'); await page.waitForTimeout(1200);
         const camR = (await inViewAll()).cam;
-        const wantR = isPh ? [28.5, -5.5, 42] : [-22, -88, 92];
-        check('Reset camera stays the manual fallback: returns to the default camera and stays there', Math.hypot(...camR.map((v, i) => v - wantR[i])) < 0.6, `cam ${camR} want ${wantR}`);
+        const wantR = [-22, -88, 92]; // Reset camera = the overview (as before)
+        check('Reset camera stays the manual fallback: returns to the overview camera and stays there (no auto-reframe fight)', Math.hypot(...camR.map((v, i) => v - wantR[i])) < 0.6, `cam ${camR} want ${wantR}`);
         await home();
         await page.evaluate(() => { window.gdt.applyPreset('centered'); window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.setView('3d', { ms: 0 }); }); await page.waitForTimeout(600);
         // exaggeration cap on phones; ×N label whenever above ×1

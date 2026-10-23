@@ -256,8 +256,8 @@ export function createViewer(container) {
     let top = 8, bot = h - 8;
     if (phone) { // the badge + view row above, the exaggeration badge below
       const sb = rb('status-badge'), vr = rb('view-bar'), mg = rb('mag-badge');
-      top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + 10;
-      if (mg) bot = Math.min(bot, mg.t - 8);
+      top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + 40; // + room for the TOP tag above its handle
+      if (mg) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag
     }
     const region = { l: phone ? 100 : 90, r: w - (phone ? 150 : 170), t: top, b: bot };
     if (region.r - region.l < 40 || region.b - region.t < 40) return false;

@@ -9,6 +9,7 @@ import { fmt, fmtLimit, fmtUp, fmtAgainst } from '../format.js';
 import { fcfHTML, fmtNote } from '../fcf.js';
 import { toVisualXY, visualZoneRadius } from '../exaggeration.js';
 import { viewPose, effectiveDistance } from '../views.js';
+import { notJudged } from '../tolerance.js';
 import { COLORS, fatLine, circlePoints, arrowHead, label, disposeObject, setLineResolution } from './primitives.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z-up, matching the drawing frame
@@ -83,6 +84,14 @@ export function createViewer(container) {
   scene.add(staticGroup);
   const drawing = staticGroup.getObjectByName('drawing');
   let showDrawing = true;
+  // Datum references dropped: dim their planes and labels in the drawing.
+  function setDatumsDim(datums) {
+    for (const k of ['A', 'B', 'C']) {
+      const on = datums?.[k] !== false;
+      datumSheets[k].material.opacity = on ? 0.12 : 0.03;
+      for (const el of container.querySelectorAll(`.datum-${k.toLowerCase()}`)) el.classList.toggle('dropped', !on);
+    }
+  }
   /** "Show drawing" toggle: datums, origin axes, true-position callout, basic
    *  dimensions, in-scene FCF + its leader. Display only. */
   function setDrawing(on) {
@@ -212,10 +221,14 @@ export function createViewer(container) {
     const vt = toVisualXY(TP, state.top.dx, state.top.dy, M);
     for (const child of [...dynamic.children]) disposeObject(child);
     dynamic.add(buildPlate(vb, vt, state.xray));
-    const na = result.verdict === 'REJECT_SIZE'; // neutral gray: position not judged
-    dynamic.add(buildZone(visualZoneRadius(result.tolerance, M), result.inTolerance, M, result.tolerance, na));
+    const na = notJudged(result.verdict); // neutral gray: position not judged (size rejected / no datums)
+    const f = result.freedom;
+    const zc = toVisualXY(TP, result.zone.dx, result.zone.dy, M); // zone centre: slid along the freed axes
+    const R = visualZoneRadius(result.tolerance, M);
+    if (f.slides) dynamic.add(buildFreedom(f, zc, R));
+    dynamic.add(buildZone(R, result.inTolerance, M, result.tolerance, na, zc, f.floats));
     fcfLabel.element.innerHTML = fcfDrawingHTML(state, result);
-    dynamic.add(buildAxis(vb, vt, result));
+    dynamic.add(buildAxis(vb, vt, result, zc));
     const leader = buildLeader(vt);
     leader.userData.drawing = true;
     leader.visible = showDrawing;
@@ -431,7 +444,7 @@ export function createViewer(container) {
   requestAnimationFrame(frame);
 
   return {
-    scene, renderer, controls, handles, update, setDrawing, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement,
+    scene, renderer, controls, handles, update, setDrawing, setDatumsDim, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement,
     get camera() { return camera; },
     setView, setProjection, onView: (f) => { viewListeners.push(f); },
     get view() { return { view: viewName, ortho: camera === ortho, animating: !!anim }; },
@@ -442,6 +455,7 @@ export function createViewer(container) {
 // Static drawing elements
 // ---------------------------------------------------------------------------
 
+let datumSheets = null;
 function buildStatic() {
   const g = new THREE.Group();
   g.name = 'static';
@@ -464,6 +478,7 @@ function buildStatic() {
   c.rotation.x = Math.PI / 2; // into the XZ plane
   c.position.set(L / 2, -0.4, H / 2);
   d.add(a, b, c);
+  datumSheets = { A: a, B: b, C: c };
 
   // Plane borders
   const rect = (pts, color) => fatLine([...pts, pts[0]], { color, width: 1.5, opacity: 0.7 });
@@ -597,14 +612,46 @@ function buildPlate(vb, vt, xray) {
   return g;
 }
 
+/**
+ * Freed degrees of freedom: a translucent slab (visible in every view) over the
+ * path the zone may sweep, plus double arrows beside the zone on the top face.
+ * X free (B dropped): slab along X. Y free (C dropped): slab along Y. Both: a cross.
+ */
+function buildFreedom(f, c, R) {
+  const g = new THREE.Group();
+  g.name = 'freedom';
+  const color = COLORS.free;
+  const slab = (cx, cy, sx, sy) => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(sx, sy, H),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1, depthWrite: false, depthTest: false }),
+    );
+    mesh.position.set(cx, cy, H / 2);
+    mesh.renderOrder = 3;
+    g.add(mesh);
+    const x0 = cx - sx / 2, x1 = cx + sx / 2, y0 = cy - sy / 2, y1 = cy + sy / 2;
+    for (const z of [0, H]) g.add(fatLine([[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z], [x0, y0, z]], { color, width: 1.5, dashed: true, dashSize: 1.4, gapSize: 1, onTop: true, opacity: 0.9 }));
+  };
+  const arrows = (dx, dy) => {
+    const o = R + 2, len = 10;
+    for (const s of [1, -1]) {
+      const from = [c.x + s * dx * o, c.y + s * dy * o, H], to = [c.x + s * dx * (o + len), c.y + s * dy * (o + len), H];
+      g.add(fatLine([from, to], { color, width: 3, onTop: true }), arrowHead(from, to, 3.2, { color, width: 3, onTop: true }));
+    }
+  };
+  if (f.freeX) { slab(L / 2, c.y, L - 2, 2 * R); arrows(1, 0); }
+  if (f.freeY) { slab(c.x, W / 2, 2 * R, W - 2); arrows(0, 1); }
+  return g;
+}
+
 /** Translucent cylinder: zone of visual radius R, coaxial with true position, z = 0..H. */
-function buildZone(R, inTol, M, allowed, na = false) {
+function buildZone(R, inTol, M, allowed, na = false, zc = { x: TP.x, y: TP.y }, floats = false) {
   const color = na ? COLORS.na : inTol ? COLORS.in : COLORS.out;
   const g = new THREE.Group();
   g.name = 'zone';
   const geo = new THREE.CylinderGeometry(R, R, H, 64, 1, true);
   geo.rotateX(Math.PI / 2);
-  geo.translate(TP.x, TP.y, H / 2);
+  geo.translate(zc.x, zc.y, H / 2);
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false, depthTest: false }),
@@ -612,35 +659,35 @@ function buildZone(R, inTol, M, allowed, na = false) {
   mesh.renderOrder = 5;
   g.add(mesh);
   const o = { color, width: 3.5, onTop: true };
-  g.add(fatLine(circlePoints(TP.x, TP.y, 0, R), o), fatLine(circlePoints(TP.x, TP.y, H, R), o));
+  g.add(fatLine(circlePoints(zc.x, zc.y, 0, R), o), fatLine(circlePoints(zc.x, zc.y, H, R), o));
   for (let k = 0; k < 4; k++) {
     const a = (k * Math.PI) / 2 + Math.PI / 4;
-    const x = TP.x + R * Math.cos(a);
-    const y = TP.y + R * Math.sin(a);
+    const x = zc.x + R * Math.cos(a);
+    const y = zc.y + R * Math.sin(a);
     g.add(fatLine([[x, y, 0], [x, y, H]], { color, width: 1.5, onTop: true, opacity: 0.8 }));
   }
   // Label so the cylinder is not mistaken for a gage pin. Anchored on the zone's
   // +X side at the top; placed CALLOUT_PX.zone screen px to the right
   // (the "hole's actual axis" label sits lower right), clear of the TOP/BOTTOM
   // handle labels at any zoom.
-  const anchor = new THREE.Vector3(TP.x + R, TP.y, H);
+  const anchor = new THREE.Vector3(zc.x + R, zc.y, H);
   const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
   const factor = M === 1 ? 'shown ×1, true size' : `shown ×${M}`;
-  const zl = label(`position zone ⌀${fmtLimit(allowed)}<br>(${factor}, not a pin)`, `zone-label ${na ? 'na' : inTol ? 'pass' : 'fail'}`, anchor.toArray());
+  const zl = label(`position zone ⌀${fmtLimit(allowed)}<br>${floats ? 'floats free: no datums' : `(${factor}, not a pin)`}`, `zone-label ${na ? 'na' : inTol ? 'pass' : 'fail'}`, anchor.toArray());
   zl.userData.callout = {
     leader,
     near: { anchor, px: CALLOUT_PX.zone, center: [0, 0.5] }, // left edge at leader end
-    far: { anchor: new THREE.Vector3(TP.x, TP.y - R, 0), at: new THREE.Vector3(TP.x + 2, TP.y - Math.max(R, 6) - 16, 0), center: [0.5, 0] }, // hangs below
+    far: { anchor: new THREE.Vector3(zc.x, zc.y - R, 0), at: new THREE.Vector3(zc.x + 2, zc.y - Math.max(R, 6) - 16, 0), center: [0.5, 0] }, // hangs below
   };
   g.add(leader, zl);
   return g;
 }
 
 /** Actual hole axis (bold), plus radial "r" ticks from true position at each end. */
-function buildAxis(vb, vt, result) {
+function buildAxis(vb, vt, result, zc = TP) {
   const g = new THREE.Group();
   g.name = 'axis';
-  const na = result.verdict === 'REJECT_SIZE';
+  const na = notJudged(result.verdict);
   const color = na ? COLORS.na : result.inTolerance ? COLORS.in : COLORS.out;
   // faint extension beyond the zone ends
   const ext = 4;
@@ -664,7 +711,7 @@ function buildAxis(vb, vt, result) {
   g.add(leader, al);
   // radial offset r at each end (true position -> endpoint)
   for (const [v, z, end] of [[vb, 0, result.bottom], [vt, H, result.top]]) {
-    g.add(fatLine([[TP.x, TP.y, z], [v.x, v.y, z]], { color: na ? COLORS.na : end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));
+    g.add(fatLine([[zc.x, zc.y, z], [v.x, v.y, z]], { color: na ? COLORS.na : end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));
   }
   return g;
 }
@@ -714,10 +761,10 @@ function buildHandles() {
     bottom.position.set(vb.x, vb.y, 0);
     top.position.set(vt.x, vt.y, H);
     mid.position.set((vb.x + vt.x) / 2, (vb.y + vt.y) / 2, H / 2);
-    const na = result.verdict === 'REJECT_SIZE'; // size rejected: handles neutral, r for information
+    const na = notJudged(result.verdict); // size rejected / no datums: handles neutral, r for information
     bottom.material.color.set(na ? COLORS.na : result.bottom.inside ? COLORS.in : COLORS.out);
     top.material.color.set(na ? COLORS.na : result.top.inside ? COLORS.in : COLORS.out);
-    const txt = (name, e) => (na ? `${name} r=${fmtUp(e.r)} (size rejected)`
+    const txt = (name, e) => (result.verdict === 'NO_DATUMS' ? `${name} (no datums: floats)` : na ? `${name} r=${fmtUp(e.r)} (size rejected)`
       : `${name} r=${fmtAgainst(e.r, result.radius, e.inside)} ${e.inside ? '≤' : '>'} ${fmtLimit(result.radius)} ${e.inside ? '✔' : '✘'}`);
     topLabel.element.textContent = txt('TOP z=10', result.top);
     botLabel.element.textContent = txt('BOTTOM z=0', result.bottom);

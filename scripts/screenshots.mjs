@@ -376,6 +376,104 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
   const q = await p2.evaluate(() => ({ v: window.gdt.view(), tilt: window.gdt.state.tiltLock, lock: window.gdt.state.lock, api: ['setTiltLock', 'setLock', 'setView', 'setProjection'].every((f) => typeof window.gdt[f] === 'function') }));
   ckV('URL ?view=top&tiltlock=1&lock=1 and JS API (gdt.setTiltLock/setLock/setView/setProjection)', q.v.view === 'top' && q.v.ortho && q.tilt && q.lock && q.api, q);
   await p2.close();
+
+  // ---- Datum references: A/B/C toggles, sliding zone, locks, MMC/LMC, notes, views ----
+  {
+    const R = () => page.evaluate(() => { const r = window.gdt.result(), e = (id) => document.getElementById(id); return { verdict: r.verdict, dev: r.deviation, tol: r.tolerance, zone: r.zone, pos: e('pos-value').innerText, cmp: e('pos-compare').innerText, status: e('pos-status').innerText, chip: e('fcf-chip').querySelector('table').dataset.datums, panel: e('spec-fcf').querySelector('table').dataset.datums, scene: document.querySelector('.label .fcf')?.dataset.datums, badge: e('badge-datum').hidden ? '' : e('badge-datum').innerText, slide: getComputedStyle(e('slide-line')).visibility === 'visible' ? e('slide-line').innerText : '', note: getComputedStyle(e('datum-note')).visibility === 'visible' ? e('datum-note').innerText : '', rows: ['bottom', 'top'].map((k) => e('row-' + k).className), insetZone: document.querySelector('#inset .zone').getAttribute('class'), insetFree: getComputedStyle(document.getElementById('i-free')).display, st: JSON.parse(JSON.stringify({ b: window.gdt.state.bottom, t: window.gdt.state.top })) }; });
+    const reset = () => page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setStated(0.25); window.gdt.setSize(10.1); window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); });
+    await reset(); await page.click('#view-row [data-view="3d"]'); await page.waitForTimeout(600);
+    let r = await R();
+    ckV('datums: all three on by default; FCF (panel, chip, 3D drawing) shows A B C; no badge, no notes', r.chip === 'ABC' && r.panel === 'ABC' && r.scene === 'ABC' && r.badge === '' && r.slide === '' && r.note === '', r);
+    // C dropped: slides in Y
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0, dy: 0.2 }, top: { dx: 0, dy: 0.2 } }));
+    r = await R(); ckV('with all datums the axis 0.2 off in Y is OUT', r.verdict === 'OUT', { v: r.verdict, pos: r.pos });
+    await page.locator('#datum-C').scrollIntoViewIfNeeded(); await page.click('#datum-C'); await page.waitForTimeout(300);
+    r = await R();
+    ckV('drop C: IN (slides in Y), zone centre dy +0.2, FCF drops C everywhere, badge + slide line, inset shows freedom band', r.verdict === 'IN' && Math.abs(r.zone.dy - 0.2) < 1e-9 && r.zone.dx === 0 && r.chip === 'AB' && r.panel === 'AB' && r.scene === 'AB' && /C dropped.*Y/.test(r.badge) && /slides in Y/.test(r.slide) && r.insetFree !== 'none', r);
+    await page.screenshot({ path: 'screenshots/datum_c_dropped_3d.png' });
+    // X is still held with C dropped
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.2, dy: 0 }, top: { dx: 0.2, dy: 0 } }));
+    r = await R(); ckV('C dropped: an X offset of 0.2 is still OUT (X is held by B)', r.verdict === 'OUT', { v: r.verdict, dev: r.dev });
+    // B dropped
+    await page.click('#datum-C'); await page.click('#datum-B'); await page.waitForTimeout(300);
+    r = await R(); ckV('drop B only: slides in X, the same 0.2 X offset is IN; Y offset is OUT', r.verdict === 'IN' && Math.abs(r.zone.dx - 0.2) < 1e-9 && r.chip === 'AC' && /slides in X/.test(r.slide), r);
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0, dy: 0.2 }, top: { dx: 0, dy: 0.2 } }));
+    r = await R(); ckV('B dropped: Y offset 0.2 OUT', r.verdict === 'OUT', r.verdict);
+    // B and C dropped: perpendicularity
+    await page.click('#datum-C'); await page.waitForTimeout(300);
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.4, dy: -0.3 }, top: { dx: 0.4, dy: -0.3 } }));
+    r = await R(); ckV('B and C dropped (A only): any shift is IN, FCF = A, perpendicularity note, inset band cross', r.verdict === 'IN' && r.chip === 'A' && /perpendicularity/.test(r.note) && /X and Y/.test(r.slide) && r.dev === 0, r);
+    for (const [d, want] of [[0.1, 'IN'], [0.13, 'OUT']]) {
+      await page.evaluate((d) => window.gdt.setAxis({ bottom: { dx: -d, dy: 0 }, top: { dx: d, dy: 0 } }), d);
+      r = await R(); ckV(`A only: tilt ±${d} (spread ${2 * d}) is ${want} like perpendicularity ⌀${(2 * d).toFixed(2)} vs ⌀0.25`, r.verdict === want, { v: r.verdict, pos: r.pos, cmp: r.cmp });
+    }
+    // conservative rounding on the slid zone: spread 0.2501 → OUT shows ⌀0.251 > ⌀0.25 ; 0.2499 → IN shows ≤
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: -0.12505, dy: 0 }, top: { dx: 0.12505, dy: 0 } }));
+    r = await R(); ckV('rounding: A only, spread 0.2501 -> OUT and displays ⌀0.251 > ⌀0.25 (never ≤)', r.verdict === 'OUT' && /^⌀0\.251$/.test(r.pos) && /^>/.test(r.cmp), { pos: r.pos, cmp: r.cmp, v: r.verdict });
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: -0.1249, dy: 0 }, top: { dx: 0.1249, dy: 0 } }));
+    r = await R(); ckV('rounding: A only, spread 0.2498 -> IN (≤ ⌀0.25)', r.verdict === 'IN' && /^≤/.test(r.cmp), { pos: r.pos, cmp: r.cmp });
+    // MMC / LMC bonus on the slid zone
+    await page.evaluate(() => { window.gdt.setModifier('MMC'); window.gdt.setSize(10.2); window.gdt.setAxis({ bottom: { dx: -0.22, dy: 0 }, top: { dx: 0.22, dy: 0 } }); });
+    r = await R(); ckV('MMC ⌀10.2 (allowed ⌀0.45) + A only: tilt spread 0.44 IN', r.verdict === 'IN' && Math.abs(r.tol - 0.45) < 1e-9, { v: r.verdict, tol: r.tol, pos: r.pos });
+    await page.evaluate(() => { window.gdt.setModifier('LMC'); window.gdt.setSize(10.1); window.gdt.setAxis({ bottom: { dx: -0.2, dy: 0 }, top: { dx: 0.2, dy: 0 } }); });
+    r = await R(); ckV('LMC ⌀10.1 (allowed ⌀0.35) + A only: spread 0.4 OUT, displays > limit', r.verdict === 'OUT' && /^>/.test(r.cmp), { v: r.verdict, tol: r.tol, pos: r.pos, cmp: r.cmp });
+    await page.evaluate(() => { window.gdt.setModifier('RFS'); window.gdt.setSize(10.1); });
+    // views: freedom visible, nothing overlaps
+    await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.15, dy: -0.05 }, top: { dx: 0.25, dy: 0.05 } }));
+    for (const v of ['3d', 'top', 'front', 'side']) {
+      await page.click(`#view-row [data-view="${v}"]`); await page.waitForTimeout(800);
+      const L = await labelsOk();
+      ckV(`B and C dropped, ${v} view: badge + labels + handles + controls, nothing overlaps`, L.issues.length === 0, L);
+      await page.screenshot({ path: `screenshots/datum_bc_dropped_${v}.png` });
+    }
+    await page.click('#view-row [data-view="3d"]'); await page.waitForTimeout(600);
+    // A alone
+    await reset();
+    await page.evaluate(() => window.gdt.applyPreset('diag-out'));
+    const all = await R();
+    await page.locator('#datum-A').scrollIntoViewIfNeeded(); await page.click('#datum-A'); await page.waitForTimeout(300);
+    r = await R();
+    ckV('drop A alone: nothing visible changes (verdict, ⌀, rows, inset) and the on-screen note says so', r.verdict === all.verdict && r.pos === all.pos && r.cmp === all.cmp && JSON.stringify(r.rows) === JSON.stringify(all.rows) && r.zone.dx === 0 && r.zone.dy === 0 && r.chip === 'BC' && r.note === 'Dropping A alone changes nothing visible here.' && r.insetFree === 'none', { all: [all.verdict, all.pos], now: [r.verdict, r.pos], note: r.note });
+    await page.screenshot({ path: 'screenshots/datum_a_note.png' });
+    // all three dropped
+    await page.click('#datum-B'); await page.click('#datum-C'); await page.waitForTimeout(300);
+    r = await R();
+    ckV('A, B, C dropped: NO DATUMS (neutral), zone floats free, "means nothing" note, rows n/a, FCF has no datum cells', r.verdict === 'NO_DATUMS' && r.status === 'NO DATUMS' && r.chip === '' && r.scene === '' && /means nothing/.test(r.note) && r.rows.every((c) => c === 'na') && /na/.test(r.insetZone), r);
+    await page.screenshot({ path: 'screenshots/datum_none.png' });
+    // Lock in tolerance with freed axes (mouse)
+    await reset();
+    await page.click('#view-row [data-view="top"]'); await page.waitForTimeout(700);
+    await page.evaluate(() => { window.gdt.applyPreset('tilt-in'); window.gdt.setLock(true); });
+    await mdrag('mid', 0, -150);
+    let a = await R();
+    ckV('lock on, all datums: sliding the whole axis in Y is walled (|dy| <= 0.124)', Math.abs(a.st.t.dy) <= 0.124 + 1e-9 && Math.abs(a.st.t.dy) > 0.05 && a.verdict === 'IN', { b: a.st.b, t: a.st.t });
+    await reset(); await page.evaluate(() => { window.gdt.applyPreset('tilt-in'); window.gdt.setLock(true); window.gdt.setDatum('C', false); });
+    await mdrag('mid', 0, -150);
+    a = await R();
+    ckV('lock on, C dropped: sliding the axis in Y is NOT walled (zone slides), both ends move together, still IN', Math.abs(a.st.t.dy) > 0.2 && Math.abs(a.st.t.dy - a.st.b.dy) < 1e-9 && a.verdict === 'IN', { b: a.st.b, t: a.st.t, v: a.verdict });
+    await mdrag('mid', 200, 0);
+    a = await R();
+    ckV('lock on, C dropped: sliding in X is still walled (X is held)', Math.abs(a.st.t.dx) <= 0.124 + 1e-9 && a.verdict === 'IN', { t: a.st.t });
+    // tilt lock + tolerance lock with B dropped
+    await reset(); await page.evaluate(() => { window.gdt.applyPreset('tilt-in'); window.gdt.setTiltLock(true); window.gdt.setLock(true); window.gdt.setDatum('B', false); });
+    const a0 = await R();
+    await mdrag('mid', 250, 0);
+    a = await R();
+    ckV('tilt lock + tolerance lock + B dropped: X slide free, tilt kept, IN', a.verdict === 'IN' && Math.abs((a.st.t.dx - a.st.b.dx) - (a0.st.t.dx - a0.st.b.dx)) < 1e-9 && Math.abs(a.st.t.dx) > 0.3, { b: a.st.b, t: a.st.t, v: a.verdict });
+    // restoring a datum while locked: the axis stays put, shrink note
+    await page.evaluate(() => window.gdt.setDatum('B', true)); await page.waitForTimeout(250);
+    a = await R();
+    const sn = await page.evaluate(() => ({ vis: getComputedStyle(document.getElementById('shrink-note')).visibility, text: document.getElementById('shrink-note').innerText }));
+    ckV('restore B while locked: axis does not move, now OUT, note "datum restored" shown', a.verdict === 'OUT' && sn.vis === 'visible' && /datum restored/.test(sn.text) && Math.abs(a.st.t.dx) > 0.3, { sn, v: a.verdict });
+    await reset();
+    // URL ?datums=
+    const u2 = new globalThis.URL(URL); u2.searchParams.set('datums', 'AB');
+    const p3 = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await p3.goto(u2.toString(), { waitUntil: 'networkidle' }); await p3.waitForTimeout(800);
+    const q3 = await p3.evaluate(() => ({ d: window.gdt.state.datums, api: ['setDatum', 'setDatums'].every((f) => typeof window.gdt[f] === 'function') }));
+    ckV('URL ?datums=AB keeps A and B (C dropped); JS API gdt.setDatum/setDatums', q3.d.A && q3.d.B && !q3.d.C && q3.api, q3);
+    await p3.close();
+  }
 }
 
 console.log(errors.length ? `Console errors/warnings:\n  ${errors.join('\n  ')}` : 'No console errors or warnings.');

@@ -4,7 +4,7 @@ import { chromium } from 'playwright-core';
 const URL = process.env.URL || 'http://localhost:8123/';
 const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 let ok = true;
-const STATUS = ['IN TOLERANCE', 'OUT OF TOLERANCE', 'REJECT: size', 'INVALID: ⌀0 at RFS'];
+const STATUS = ['IN TOLERANCE', 'OUT OF TOLERANCE', 'REJECT: size', 'INVALID: ⌀0 at RFS', 'NO DATUMS'];
 for (const font of ['', 'DejaVu Sans, Verdana, sans-serif']) for (const width of [1280, 1440]) {
   const p = await b.newPage({ viewport: { width, height: 900 } }); const errs = [];
   p.on('console', (m) => ['error', 'warning'].includes(m.type()) && errs.push(m.text())); p.on('pageerror', (e) => errs.push(e.message));
@@ -28,6 +28,23 @@ for (const font of ['', 'DejaVu Sans, Verdana, sans-serif']) for (const width of
     const same = Object.values(res).every((s) => keys.every((k) => s[k] === first[k]));
     ok &&= same;
     console.log(width, font || 'default font', g, same ? 'STABLE' : 'JUMPS', JSON.stringify(Object.fromEntries(Object.entries(res).map(([k, v]) => [k, `${v.text} line=${v.line} next=${v.next}`]))));
+  }
+  // datum states (A/B/C toggles): nothing in the panel moves between IN / OUT / NO DATUMS
+  if (await p.evaluate(() => typeof window.gdt.setDatums === 'function')) {
+    await p.evaluate(() => { window.gdt.setModifier('RFS'); window.gdt.setSize(10.1); window.gdt.setAxis({ bottom: { dx: 0.1, dy: 0.2 }, top: { dx: 0.1, dy: 0.2 } }); });
+    const dk = [...keys, 'datums', 'afterDatums'];
+    const dsnap = () => p.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map((v) => +v.toFixed(2)).join(','); };
+      return { panel: r('#panel'), overall: r('.overall'), line: r('.pos-line'), after: r('.pos-line + *'), next: r('.overall + section'), datums: r('#datums'), afterDatums: r('#datums + section'), text: document.getElementById('pos-status').textContent }; });
+    const res = {};
+    for (const [k, d] of Object.entries({ all: 'ABC', C: 'AB', B: 'AC', BC: 'A', A: 'BC', B_only: 'B', none: '' })) {
+      await p.evaluate((d) => window.gdt.setDatums({ A: d.includes('A'), B: d.includes('B'), C: d.includes('C') }), d);
+      await p.waitForTimeout(100); res[k] = await dsnap();
+    }
+    const first = Object.values(res)[0];
+    const same = Object.values(res).every((s) => dk.every((k) => s[k] === first[k]));
+    ok &&= same;
+    console.log(width, font || 'default font', 'DATUMS', same ? 'STABLE' : 'JUMPS', JSON.stringify(Object.fromEntries(Object.entries(res).map(([k, v]) => [k, `${v.text} line=${v.line} datums=${v.datums} next=${v.afterDatums}`]))));
+    await p.evaluate(() => window.gdt.setDatums({ A: true, B: true, C: true }));
   }
   // status slot fits every status string (measured in the live #pos-status font)
   const fit = await p.evaluate((list) => {

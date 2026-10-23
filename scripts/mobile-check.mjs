@@ -389,6 +389,86 @@ for (const name of DEVICES) {
     await tapSel('#lock-btn');
     bg = await badges();
     check('both locks off -> no lock badges', bg.every((x) => !x.shown), JSON.stringify(bg));
+    // ---- Datum references (A/B/C toggles; zone slides when B / C are dropped) ----
+    {
+      const sl = slug(name);
+      const D = () => page.evaluate(() => { const g = window.gdt, r = g.result(); const e = (id) => document.getElementById(id); return {
+        verdict: r.verdict, zone: r.zone, dev: r.deviation, chip: e('fcf-chip').innerText.replace(/\s+/g, ' ').trim(), chipDatums: e('fcf-chip').querySelector('table').dataset.datums,
+        panelFcf: e('spec-fcf').innerText.replace(/\s+/g, ' ').trim(), badge: e('badge-datum').hidden ? '' : e('badge-datum').innerText, note: getComputedStyle(e('datum-note')).visibility === 'visible' ? e('datum-note').innerText : '',
+        slide: getComputedStyle(e('slide-line')).visibility === 'visible' ? e('slide-line').innerText : '', status: e('pos-status').innerText, overall: e('overall').className, pressed: ['A', 'B', 'C'].map((d) => e('datum-' + d).getAttribute('aria-pressed')).join(''),
+        next: Math.round(document.querySelector('#datums + section').getBoundingClientRect().top + scrollY + document.getElementById('panel').scrollTop), }; });
+      await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setSize(10.1); window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.setAxis({ bottom: { dx: 0, dy: 0.3 }, top: { dx: 0, dy: 0.3 } }); });
+      await home(); await page.waitForTimeout(300);
+      const btns = await page.evaluate(() => ['A', 'B', 'C'].map((d) => { const q = document.getElementById('datum-' + d).getBoundingClientRect(); return { d, w: Math.round(q.width), h: Math.round(q.height), l: q.left, r: q.right, t: q.top, b: q.bottom }; }));
+      const ov = btns.some((a, i) => btns.some((b, j) => i < j && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b));
+      const d0 = await D();
+      check('datum toggles A/B/C: all on by default, each >= 40px, no overlap, FCF shows A B C', btns.every((b) => b.w >= 40 && b.h >= 40) && !ov && d0.pressed === 'truetruetrue' && d0.chipDatums === 'ABC' && /A\s*B\s*C/.test(d0.chip) && d0.verdict === 'OUT' && d0.badge === '', `${btns.map((b) => `${b.d} ${b.w}x${b.h}`).join(', ')} chip "${d0.chip}" ${d0.verdict}`);
+      await tapSel('#datum-C');
+      const d1 = await D();
+      check('tap C: zone slides in Y (axis 0.3 off in Y now IN), FCF chip + panel FCF drop C, badge + slide line shown', d1.pressed === 'truetruefalse' && d1.verdict === 'IN' && Math.abs(d1.zone.dy - 0.3) < 1e-9 && d1.zone.dx === 0 && d1.chipDatums === 'AB' && !/C/.test(d1.chip.replace(/[^A-Z]/g, '').slice(0)) && !/\bC\b/.test(d1.panelFcf) && /C dropped.*slides in Y/.test(d1.badge) && /slides in Y/.test(d1.slide), JSON.stringify({ ...d1, next: undefined }));
+      await home(); await page.waitForTimeout(400);
+      const ov1 = await overlapCheck();
+      check('C dropped (3D): datum badge + labels + handles + controls readable, nothing overlaps', ov1.issues.length === 0 && ov1.minFont >= 10, `${ov1.issues.join(', ')} font ${ov1.minFont}`);
+      await page.screenshot({ path: `${OUT}/${sl}-datum-c-dropped-${TAG}.png` });
+      await page.evaluate(() => document.getElementById('datums').scrollIntoView({ block: 'center' })); await page.waitForTimeout(200);
+      await page.screenshot({ path: `${OUT}/${sl}-datum-c-dropped-panel-${TAG}.png` });
+      // freed Y: touch-drag TOP along Y in the top view with the tolerance lock ON: no wall in Y, still IN
+      await page.evaluate(() => { window.gdt.setAxis({ bottom: { dx: 0, dy: 0 }, top: { dx: 0, dy: 0 } }); window.gdt.setLock(true); });
+      await home(); await page.waitForTimeout(400);
+      { const h = await handleXY('mid'); await drag1(h.x, h.y, 0, -50, 12); }
+      const d2 = await D(); const s2 = await st();
+      check('C dropped + Lock in tolerance: touch drag of the slide handle along Y is not walled (zone slides), both ends move together, stay IN', Math.abs(s2.t.dy) > 0.2 && Math.abs(s2.t.dy - s2.b.dy) < 1e-9 && Math.abs(s2.t.dx) <= 0.125 && d2.verdict === 'IN', `top ${JSON.stringify(s2.t)} bottom ${JSON.stringify(s2.b)} ${d2.verdict}`);
+      await page.evaluate(() => window.gdt.setLock(false));
+      // B and C dropped: A only, slides in X and Y, perpendicular (spread = ⌀)
+      await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.12, dy: -0.06 }, top: { dx: 0.12, dy: -0.06 } }));
+      await tapSel('#datum-B');
+      const d3 = await D();
+      check('tap B too (A only): slides in X and Y, shown FCF is A only, perpendicularity note, still IN', d3.pressed === 'truefalsefalse' && d3.verdict === 'IN' && d3.chipDatums === 'A' && /perpendicularity/.test(d3.note) && /slides in X and Y/.test(d3.slide), JSON.stringify({ ...d3, next: undefined }));
+      await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.12 - 0.13, dy: -0.06 }, top: { dx: 0.12 + 0.13, dy: -0.06 } })); await page.waitForTimeout(150);
+      const d3b = await D();
+      check('A only: a tilt whose endpoint spread (0.26) exceeds ⌀0.25 is OUT (perpendicularity)', d3b.verdict === 'OUT' && d3b.dev > 0.25, `${d3b.verdict} ⌀${d3b.dev}`);
+      await page.evaluate(() => window.gdt.setAxis({ bottom: { dx: 0.12 - 0.1, dy: -0.06 }, top: { dx: 0.12 + 0.1, dy: -0.06 } })); await home(); await page.waitForTimeout(400);
+      const ov3 = await overlapCheck();
+      check('B and C dropped (3D): badge + labels + handles + controls, nothing overlaps', ov3.issues.length === 0 && ov3.minFont >= 10, ov3.issues.join(', '));
+      await page.screenshot({ path: `${OUT}/${sl}-datum-bc-dropped-${TAG}.png` });
+      await page.evaluate(() => document.getElementById('datums').scrollIntoView({ block: 'center' })); await page.waitForTimeout(200);
+      await page.screenshot({ path: `${OUT}/${sl}-datum-bc-dropped-panel-${TAG}.png` });
+      await home();
+      for (const v of ['top', 'front', 'side']) {
+        await tapSel(`#view-row [data-view="${v}"]`); await home(); await page.waitForTimeout(700);
+        const ovv = await overlapCheck();
+        check(`B and C dropped, ${v} view: freedom slab + badge + labels + handles + controls, nothing overlaps`, ovv.issues.length === 0, ovv.issues.join(', '));
+        if (v === 'top') await page.screenshot({ path: `${OUT}/${sl}-datum-bc-dropped-top-${TAG}.png` });
+      }
+      await tapSel('#view-row [data-view="3d"]'); await home(); await page.waitForTimeout(500);
+      // A alone: nothing visible changes, note says so
+      await page.evaluate(() => { window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('diag-out'); });
+      const dAll = await D();
+      await tapSel('#datum-A');
+      const dA = await D();
+      check('drop A alone: verdict, zone and numbers unchanged; on-screen note says it changes nothing visible; FCF shows B C', dA.pressed === 'falsetruetrue' && dA.verdict === dAll.verdict && dA.dev === dAll.dev && dA.zone.dx === 0 && dA.zone.dy === 0 && /Dropping A alone changes nothing visible/.test(dA.note) && dA.chipDatums === 'BC' && dA.slide === '', JSON.stringify({ ...dA, next: undefined }));
+      await page.evaluate(() => document.getElementById('datums').scrollIntoView({ block: 'center' })); await page.waitForTimeout(200);
+      await page.screenshot({ path: `${OUT}/${sl}-datum-a-note-${TAG}.png` });
+      await home();
+      // all dropped: floats free, nothing to judge
+      await tapSel('#datum-B'); await tapSel('#datum-C');
+      const dN = await D();
+      check('A, B, C all dropped: NO DATUMS (neutral, not IN/OUT), "floats free / means nothing" note, FCF has no datum cells', dN.verdict === 'NO_DATUMS' && dN.status === 'NO DATUMS' && /na/.test(dN.overall) && /means nothing/.test(dN.note) && dN.chipDatums === '' && /floats free/.test(dN.badge), JSON.stringify({ ...dN, next: undefined }));
+      await home(); await page.waitForTimeout(300);
+      const ovN = await overlapCheck();
+      check('NO DATUMS (3D): nothing overlaps', ovN.issues.length === 0, ovN.issues.join(', '));
+      await page.screenshot({ path: `${OUT}/${sl}-datum-none-${TAG}.png` });
+      // panel stays put: the section after the datum block does not move across every datum state
+      const tops = [];
+      for (const c of [{ A: 1, B: 1, C: 1 }, { A: 1, B: 1, C: 0 }, { A: 1, B: 0, C: 1 }, { A: 1, B: 0, C: 0 }, { A: 0, B: 1, C: 1 }, { A: 0, B: 0, C: 0 }]) {
+        await page.evaluate((c) => window.gdt.setDatums({ A: !!c.A, B: !!c.B, C: !!c.C }), c);
+        await page.waitForTimeout(80); tops.push((await D()).next);
+      }
+      check('panel layout stable across every datum state (section below the datum block does not move)', new Set(tops).size === 1, tops.join(','));
+      // restore
+      await page.evaluate(() => { window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.applyPreset('centered'); });
+      await home(); await page.waitForTimeout(300);
+    }
     await page.evaluate(() => { window.gdt.setTiltLock(false); window.gdt.setLock(false); window.gdt.applyPreset('centered'); });
     await home(); await page.waitForTimeout(300);
   }

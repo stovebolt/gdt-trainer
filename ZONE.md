@@ -386,3 +386,98 @@ views, but outside the round zone."*
 Tests: `tests/views.test.js` (view poses, drag planes and mapping, tilt lock,
 both locks, the 2D trap). Browser checks: `scripts/screenshots.mjs` (mouse) and
 `scripts/mobile-check.mjs` (touch, 8 devices).
+
+## 12. Datum references: A, B, C toggles (branch `datum-suppress`, preview only; for Sally)
+
+Sally's rules, as implemented. Each datum reference can be switched off in the
+panel ("Datum references in the FCF"; all on by default). B locates the zone in
+X (35 from B) and C locates it in Y (30 from C); A is the plane the zone is
+perpendicular to.
+
+| Kept | FCF shows | Zone | What is measured |
+|---|---|---|---|
+| A B C | ⌀0.25 A B C | fixed at true position (35, 30) | r from true position (unchanged) |
+| A B (C dropped) | A B | **slides in Y** | r from the slid centre; X is still held |
+| A C (B dropped) | A C | **slides in X** | r from the slid centre; Y is still held |
+| A (B, C dropped) | A | **slides in X and Y**, stays ⟂ A | position ⌀ = lateral spread of the endpoints (perpendicularity-like) |
+| B C (A dropped alone) | B C | no change | same numbers; the on-screen note says "Dropping A alone changes nothing visible here." |
+| none | (no datum cells) | **floats free** | nothing to judge: verdict **NO DATUMS** |
+
+Other combinations follow the same two rules (B off frees X, C off frees Y; A
+off is only a note unless B and C are also off).
+
+### The slid zone is the best-fit zone
+
+When the zone is free along an axis, the verdict uses the **smallest cylinder
+that contains the axis**. Concretely, the zone centre `c` along the freed
+axes is chosen to minimise the larger of the two endpoint distances, which is
+unique (a closed form, `fitZone` in `src/tolerance.js`):
+
+- one freed axis: the centre where the two endpoints are equally far away, or
+  at one endpoint when that is already tighter (it has the larger offset along
+  the held axis);
+- both freed: the centre is the midpoint of the two endpoints, so
+  r = ½·|top − bottom| and position ⌀ = 2r = the lateral spread.
+
+r is measured **from that centre** for both endpoints, so the usual rule still
+holds: IN only if both endpoints have r ≤ allowed/2 (boundary inclusive).
+Position ⌀ = 2 × the larger r, rounded the same conservative way as before
+(measured values and the position round up, allowed/bonus/limits round down,
+a failing value never displays ≤ its limit). Dropping a reference **never makes
+a part worse**: ⌀(fewer datums) ≤ ⌀(all datums) for every axis (unit-tested).
+
+### What the screen shows
+
+- FCF in the panel, the phone chip and the 3D drawing lose the dropped cells.
+  Dropped datum labels and planes are dimmed in the 3D drawing.
+- A magenta badge in the 3D view (for example "C dropped: zone slides in Y"),
+  a one-line "zone slides in Y · centre dy +0.200" in the panel, and, for A only
+  or no datums, a one-line teaching note.
+- The freed directions as a translucent magenta slab and arrows in 3D, top,
+  front and side views. (Viewed end-on, a slide along the view direction can only
+  appear as the slab's end face. That is inherent to a 2D projection.)
+- The panel inset re-centres on the slid zone so the rings stay r-from-zone-centre,
+  with a band along the freed axes and a "true position" cross.
+- The table's dx / dy columns are offsets from the slid centre (the rule note says
+  where the centre is).
+- NO DATUMS is neutral gray, never green or red; the r and 2r cells show "—"
+  because nothing is being compared.
+
+### Locks
+
+- **Lock in tolerance:** an endpoint may go anywhere the zone could slide to.
+  The freed axis has no wall; the held axis does. Closed-form projection,
+  so a sideways drag slides along the wall and never sticks (A only: each end
+  may be at most ⌀allowed from the other, a perpendicularity wall). Dragging
+  the slide handle (or the inset axis line) translates both ends by the same delta.
+  With all three dropped nothing is locked (nothing to hold).
+- **Lock tilt:** translating along a freed axis is not limited; the held axis is
+  clamped as before. Turning it on still never moves the axis.
+- Restoring a datum while **Lock in tolerance** is on never moves the axis: if
+  the less free zone then leaves it OUT, the panel notes "datum restored: zone less
+  free, axis unmoved" (same pattern as the size-shrink note).
+- RFS / MMC / LMC bonus applies to the slid zone unchanged (allowed ⌀ does not
+  depend on the datums).
+
+### Open display questions for Sally
+
+1. **Orientation with A dropped but B or C kept** (for example B only, or A+C
+   dropped). The zone is still drawn vertical (⟂ the plate). A strict reading
+   would orient it from B alone. For a single hole through a flat plate we kept it
+   vertical and show only the "no change" note for A; confirm that is the lesson.
+2. **NO DATUMS:** we show a neutral verdict (neither IN nor OUT) with "this
+   control means nothing". Is "NO DATUMS" the right wording, or should it read
+   as invalid (like ⌀0 at RFS)?
+3. **A-only wording:** "acts like a perpendicularity control". Should the readout
+   say *perpendicularity ⌀* explicitly instead of *position ⌀* in that case?
+4. **Best-fit centre:** we pick the optimal zone position automatically. Should the
+   learner instead place the zone, so they feel the slide? (Math is unchanged.)
+5. **Large slides on a phone at ×24:** a slide of several tenths of a mm moves the
+   hole well away from the close-up framing, and callouts can crowd the edge.
+   "Reset camera" or a lower exaggeration fixes it. Acceptable?
+
+Tests: `tests/datums.test.js` (freedom table for all 8 combinations, best-fit
+closed form against brute force, every rule, bonus and rounding edges, lock and
+tilt-lock fuzz with each freedom, "dropping never worsens"). Browser checks:
+`scripts/screenshots.mjs` (mouse) and `scripts/mobile-check.mjs` (touch), plus
+the datum states in `scripts/panel-stable.mjs`.

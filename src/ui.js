@@ -81,6 +81,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
       f.range.value = String(v);
       if (document.activeElement !== f.num) f.num.value = fmtSigned(v).replace('−', '-').replace('+', '');
     }
+    $('#mag').max = String(res.magMax ?? VIEW.maxMagnification);
     $('#mag').value = String(state.magnification);
     $('#mag-val').textContent = `×${state.magnification}`;
     $('#xray').checked = state.xray;

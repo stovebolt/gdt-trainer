@@ -91,6 +91,8 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#ex-body').style.minHeight = `${h}px`;
   }
 
+  new ResizeObserver(() => reserveExplainHeight()).observe($('#ex-sizer')); // width changed (scrollbar, rotation): re-measure
+
   const inset = createInset($('#inset'), { onChange, clampOffset });
 
   function render(state, res) {

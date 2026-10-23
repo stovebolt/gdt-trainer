@@ -257,13 +257,13 @@ export function createViewer(container) {
     { // the badge + view row above, the exaggeration badge below (phones and tablets)
       const sb = rb('status-badge'), vr = rb('view-bar'), mg = rb('mag-badge');
       top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + (phone ? 40 : 70); // + room for the TOP tag above its handle (tablets: tags reach further left under the badges)
-      if (mg && mg.t > h * 0.5) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag (only when the badge sits low)
+      if (mg && (phone || mg.t > h * 0.5)) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag (only when the badge sits low)
     }
     const region = { l: phone ? 100 : 90, r: w - (phone ? 150 : 170), t: top, b: bot };
     if (region.r - region.l < 40 || region.b - region.t < 40) return false;
     const px = (v) => { const n = v.clone().project(camera); return { x: ((n.x + 1) / 2) * w, y: ((1 - n.y) / 2) * h }; };
     const ctr = px(controls.target);
-    const plan = reframePlan(keyPts.map(px), region, ctr, { tol: 14 }); // small excursions (default close-up) never pan
+    const plan = reframePlan(keyPts.map(px), region, ctr, { tol: phone ? 8 : 14 }); // small excursions (default close-up) never pan
     if (!plan) return false;
     const dist = camera.position.distanceTo(controls.target);
     const halfH = camera === ortho ? ortho.top / ortho.zoom : dist * tanHalf();

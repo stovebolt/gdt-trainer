@@ -22,7 +22,7 @@ export const DATUM_COPY = {
     controls: 'X and Y location, axis square to A.',
     free: 'Nothing.',
     note: '',
-    better: [R('Each datum stops the motions its contact blocks.', 'datum reference frame'), P('None, this is the complete frame.')],
+    better: [R('Each datum stops the motions its contact blocks.', 'datum reference frame, order of precedence'), P('None, this is the complete frame.')],
   },
   AB: {
     label: 'A | B (C dropped)',
@@ -54,7 +54,7 @@ export const DATUM_COPY = {
     free: 'Z (not visible on a through hole).',
     note: '',
     better: [
-      R('The implied 90 degree relationship holds the axis to the referenced datums.', 'datum reference frame'),
+      R('The implied 90 degree relationship holds the axis to the referenced datums.', 'datum reference frame, order of precedence'),
       P('List A first: the hole is square to A and A gives a stable seat.'),
     ],
   },

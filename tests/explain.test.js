@@ -31,7 +31,7 @@ test('every copy line has a valid type; citations are topic names only; clause n
     assert.ok(l.type in TAGS, l.text);
     assert.ok(l.text.length > 0);
     assert.equal(l.clause, '', 'clause numbers left blank');
-    if (l.citation) { assert.ok(CITATION_TOPICS.includes(l.citation), l.citation); assert.ok(!/\d/.test(l.citation), 'no clause numbers'); }
+    if (l.citation) { for (const t of l.citation.split(', ')) assert.ok(CITATION_TOPICS.includes(t), l.citation); assert.ok(!/\d/.test(l.citation), 'no clause numbers'); }
     if (l.type === 'practice') assert.equal(l.citation, '', 'advice is never cited like a rule');
   }
   for (const m of ['RFS', 'MMC', 'LMC']) assert.ok(MC_COPY[m].some((l) => l.type === 'rule'));
@@ -78,4 +78,8 @@ test('markup includes Controls / Free / Better way and the advice-only footer', 
   for (const s of ['Controls', 'Free', 'Better way', 'Material condition: MMC', 'advice only', 'Add C unless Y is free on purpose.']) assert.ok(h.includes(s), s);
   assert.ok(!explainHTML(explainFor({ A: true, B: true, C: true })).includes('class="ex-note"'));
   assert.ok(explainHTML(explainFor({ A: false, B: false, C: true })).includes('Simplified, this lesson keeps the zone vertical.'));
+});
+
+test('entries 1 (A|B|C) and 5 (B|C) cite order of precedence on their Rule lines', () => {
+  for (const k of ['ABC', 'BC']) assert.ok(DATUM_COPY[k].better.some((l) => l.type === 'rule' && l.citation.includes('order of precedence')), k);
 });

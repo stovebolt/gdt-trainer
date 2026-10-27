@@ -9,6 +9,8 @@ import { fmt, fmtLimit, fmtUp, fmtAgainst } from '../format.js';
 import { fcfHTML, fmtNote } from '../fcf.js';
 import { toVisualXY, visualZoneRadius } from '../exaggeration.js';
 import { viewPose, effectiveDistance } from '../views.js';
+import { notJudged } from '../tolerance.js';
+import { reframePlan } from '../framing.js';
 import { COLORS, fatLine, circlePoints, arrowHead, label, disposeObject, setLineResolution } from './primitives.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z-up, matching the drawing frame
@@ -51,6 +53,7 @@ const VIEW_DIST = 120; // camera distance for ortho views (only affects clipping
 const SNAP_MS = 420;
 
 export function createViewer(container) {
+  let keyPts = [], reframeAt = 0, reframeTries = 0, pointerDown = false; // auto-reframe state (see reframe())
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0xf8fafc);
@@ -83,6 +86,14 @@ export function createViewer(container) {
   scene.add(staticGroup);
   const drawing = staticGroup.getObjectByName('drawing');
   let showDrawing = true;
+  // Datum references dropped: dim their planes and labels in the drawing.
+  function setDatumsDim(datums) {
+    for (const k of ['A', 'B', 'C']) {
+      const on = datums?.[k] !== false;
+      datumSheets[k].material.opacity = on ? 0.12 : 0.03;
+      for (const el of container.querySelectorAll(`.datum-${k.toLowerCase()}`)) el.classList.toggle('dropped', !on);
+    }
+  }
   /** "Show drawing" toggle: datums, origin axes, true-position callout, basic
    *  dimensions, in-scene FCF + its leader. Display only. */
   function setDrawing(on) {
@@ -143,7 +154,7 @@ export function createViewer(container) {
       if (camera === ortho) { ortho.zoom = z0 + (z1 - z0) * e; ortho.updateProjectionMatrix(); }
       controls.update();
       layoutKey = '';
-      if (k >= 1) anim = null;
+      if (k >= 1) { anim = null; if (reframeTries < 3) reframeAt = performance.now() + 120; }
     };
     if (ms <= 0) anim(performance.now() + 1);
   }
@@ -174,10 +185,11 @@ export function createViewer(container) {
       animateTo(viewPose(name, freeAreaTarget(name, halfH), VIEW_DIST), { halfH, ms });
     }
     viewName = name;
+    reframeTries = 0; reframeAt = performance.now() + 100; // slid zone may sit off the snapped view
     onViewChange();
   }
   function resetCamera(view = DEFAULT_CAMERA, name = view === DEFAULT_CAMERA ? '3d' : null) {
-    anim = null;
+    anim = null; reframeAt = 0; // manual fallback: Reset camera is final until the axis changes again
     setProjection('persp');
     camera.position.set(...view.position);
     controls.target.set(...view.target);
@@ -212,16 +224,58 @@ export function createViewer(container) {
     const vt = toVisualXY(TP, state.top.dx, state.top.dy, M);
     for (const child of [...dynamic.children]) disposeObject(child);
     dynamic.add(buildPlate(vb, vt, state.xray));
-    const na = result.verdict === 'REJECT_SIZE'; // neutral gray: position not judged
-    dynamic.add(buildZone(visualZoneRadius(result.tolerance, M), result.inTolerance, M, result.tolerance, na));
+    const na = notJudged(result.verdict); // neutral gray: position not judged (size rejected / no datums)
+    const f = result.freedom;
+    const zc = toVisualXY(TP, result.zone.dx, result.zone.dy, M); // zone centre: slid along the freed axes
+    const R = visualZoneRadius(result.tolerance, M);
+    if (f.slides) dynamic.add(buildFreedom(f, zc, R));
+    dynamic.add(buildZone(R, result.inTolerance, M, result.tolerance, na, zc, f.floats));
     fcfLabel.element.innerHTML = fcfDrawingHTML(state, result);
-    dynamic.add(buildAxis(vb, vt, result));
+    dynamic.add(buildAxis(vb, vt, result, zc));
     const leader = buildLeader(vt);
     leader.userData.drawing = true;
     leader.visible = showDrawing;
     dynamic.add(leader);
     handles.place(vb, vt, result);
+    keyPts = [[zc.x, zc.y, 0], [zc.x, zc.y, H], [vb.x, vb.y, 0], [vt.x, vt.y, H], [(vb.x + vt.x) / 2, (vb.y + vt.y) / 2, H / 2]].map((a) => new THREE.Vector3(...a));
+    reframeTries = 0; reframeAt = performance.now() + 250; // auto-reframe after the change settles
     layoutKey = ''; // force callout layout
+  }
+
+  // ---- Auto-reframe: keep the hole in view after a big slide (pan, then dolly out only if needed) ----
+  renderer.domElement.addEventListener('pointerdown', () => { pointerDown = true; });
+  for (const ev of ['pointerup', 'pointercancel']) window.addEventListener(ev, () => { pointerDown = false; reframeAt = reframeAt ? performance.now() + 150 : 0; });
+  /** Returns true if it started a camera move. Never rotates; never runs mid-drag. */
+  function reframe() {
+    const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+    if (!w || !h || !keyPts.length) return false;
+    camera.updateMatrixWorld();
+    const cr = renderer.domElement.getBoundingClientRect();
+    const rb = (id) => { const e = document.getElementById(id); if (!e || !e.offsetWidth) return null; const b = e.getBoundingClientRect(); return { t: b.top - cr.top, b: b.bottom - cr.top }; };
+    const phone = isPhone();
+    let top = 8, bot = h - 8;
+    { // the badge + view row above, the exaggeration badge below (phones and tablets)
+      const sb = rb('status-badge'), vr = rb('view-bar'), mg = rb('mag-badge');
+      top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + (phone ? 40 : 70); // + room for the TOP tag above its handle (tablets: tags reach further left under the badges)
+      if (mg && (phone || mg.t > h * 0.5)) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag (only when the badge sits low)
+    }
+    const region = { l: phone ? 100 : 90, r: w - (phone ? 150 : 170), t: top, b: bot };
+    if (region.r - region.l < 40 || region.b - region.t < 40) return false;
+    const px = (v) => { const n = v.clone().project(camera); return { x: ((n.x + 1) / 2) * w, y: ((1 - n.y) / 2) * h }; };
+    const ctr = px(controls.target);
+    const plan = reframePlan(keyPts.map(px), region, ctr, { tol: phone ? 8 : 14 }); // small excursions (default close-up) never pan
+    if (!plan) return false;
+    const dist = camera.position.distanceTo(controls.target);
+    const halfH = camera === ortho ? ortho.top / ortho.zoom : dist * tanHalf();
+    const mpp = ((2 * halfH) / h) * plan.scale; // world mm per px after the dolly
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const shift = right.multiplyScalar(-plan.dx * mpp).addScaledVector(up, plan.dy * mpp);
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const target = controls.target.clone().add(shift);
+    const pos = controls.target.clone().addScaledVector(dir, dist * plan.scale).add(shift);
+    animateTo({ position: pos.toArray(), target: target.toArray() }, { halfH: camera === ortho ? halfH * plan.scale : null, ms: 320 });
+    return true;
   }
 
   // Place callout labels + leaders (see CALLOUT_PX / CALLOUT_BLEND).
@@ -308,6 +362,11 @@ export function createViewer(container) {
         const ew = tpLabel.element.offsetWidth, eh = tpLabel.element.offsetHeight;
         const l = ((_n.x + 1) / 2) * w - ew / 2, t = ((1 - _n.y) / 2) * h - eh / 2;
         hide = [badge, mag, chip].some((r) => r && l < r.r && l + ew > r.l && t < r.b && t + eh > r.t);
+      }
+      if (!hide && tpLabel.element.offsetWidth) { // never over a handle / zone label either
+        const tr = tpLabel.element.getBoundingClientRect();
+        const others = [...placed.map((q) => q.o.element), ...document.querySelectorAll('.handle-label')];
+        hide = others.some((e) => { if (e.style.visibility === 'hidden') return false; const r = e.getBoundingClientRect(); return r.width && tr.left < r.right - 1 && tr.right > r.left + 1 && tr.top < r.bottom - 1 && tr.bottom > r.top + 1; });
       }
       tpLabel.element.style.visibility = hide ? 'hidden' : '';
     }
@@ -422,6 +481,7 @@ export function createViewer(container) {
 
   function frame(now) {
     if (anim) anim(now);
+    if (reframeAt && !anim && !pointerDown && performance.now() >= reframeAt) { reframeAt = 0; if (reframeTries++ < 3) reframe(); }
     controls.update();
     layoutCallouts();
     renderer.render(scene, camera);
@@ -431,7 +491,7 @@ export function createViewer(container) {
   requestAnimationFrame(frame);
 
   return {
-    scene, renderer, controls, handles, update, setDrawing, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement,
+    scene, renderer, controls, handles, update, setDrawing, setDatumsDim, reframe, resetCamera: () => resetCamera(), zoomToHole, domElement: renderer.domElement,
     get camera() { return camera; },
     setView, setProjection, onView: (f) => { viewListeners.push(f); },
     get view() { return { view: viewName, ortho: camera === ortho, animating: !!anim }; },
@@ -442,6 +502,7 @@ export function createViewer(container) {
 // Static drawing elements
 // ---------------------------------------------------------------------------
 
+let datumSheets = null;
 function buildStatic() {
   const g = new THREE.Group();
   g.name = 'static';
@@ -464,6 +525,7 @@ function buildStatic() {
   c.rotation.x = Math.PI / 2; // into the XZ plane
   c.position.set(L / 2, -0.4, H / 2);
   d.add(a, b, c);
+  datumSheets = { A: a, B: b, C: c };
 
   // Plane borders
   const rect = (pts, color) => fatLine([...pts, pts[0]], { color, width: 1.5, opacity: 0.7 });
@@ -597,14 +659,50 @@ function buildPlate(vb, vt, xray) {
   return g;
 }
 
+/**
+ * Freed degrees of freedom: a translucent slab (visible in every view) over the
+ * path the zone may sweep, plus double arrows beside the zone on the top face.
+ * X free (B dropped): slab along X. Y free (C dropped): slab along Y. Both: a cross.
+ */
+function buildFreedom(f, c, R) {
+  const g = new THREE.Group();
+  g.name = 'freedom';
+  const color = COLORS.free;
+  const slab = (cx, cy, sx, sy) => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(sx, sy, H),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1, depthWrite: false, depthTest: false }),
+    );
+    mesh.position.set(cx, cy, H / 2);
+    mesh.renderOrder = 3;
+    g.add(mesh);
+    const x0 = cx - sx / 2, x1 = cx + sx / 2, y0 = cy - sy / 2, y1 = cy + sy / 2;
+    for (const z of [0, H]) g.add(fatLine([[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z], [x0, y0, z]], { color, width: 1.5, dashed: true, dashSize: 1.4, gapSize: 1, onTop: true, opacity: 0.9 }));
+  };
+  const arrows = (dx, dy) => {
+    const o = R + 2, len = 10;
+    for (const s of [1, -1]) {
+      const from = [c.x + s * dx * o, c.y + s * dy * o, H], to = [c.x + s * dx * (o + len), c.y + s * dy * (o + len), H];
+      g.add(fatLine([from, to], { color, width: 3, onTop: true }), arrowHead(from, to, 3.2, { color, width: 3, onTop: true }));
+    }
+  };
+  // Best-fit zone centre (automatic, display only): a small diamond on the top and bottom faces + the zone centreline.
+  const d = 1.6;
+  for (const z of [0, H]) g.add(fatLine([[c.x, c.y - d, z], [c.x + d, c.y, z], [c.x, c.y + d, z], [c.x - d, c.y, z], [c.x, c.y - d, z]], { color, width: 3, onTop: true }));
+  g.add(fatLine([[c.x, c.y, 0], [c.x, c.y, H]], { color, width: 1.5, dashed: true, dashSize: 0.8, gapSize: 0.6, onTop: true }));
+  if (f.freeX) { slab(L / 2, c.y, L - 2, 2 * R); arrows(1, 0); }
+  if (f.freeY) { slab(c.x, W / 2, 2 * R, W - 2); arrows(0, 1); }
+  return g;
+}
+
 /** Translucent cylinder: zone of visual radius R, coaxial with true position, z = 0..H. */
-function buildZone(R, inTol, M, allowed, na = false) {
+function buildZone(R, inTol, M, allowed, na = false, zc = { x: TP.x, y: TP.y }, floats = false) {
   const color = na ? COLORS.na : inTol ? COLORS.in : COLORS.out;
   const g = new THREE.Group();
   g.name = 'zone';
   const geo = new THREE.CylinderGeometry(R, R, H, 64, 1, true);
   geo.rotateX(Math.PI / 2);
-  geo.translate(TP.x, TP.y, H / 2);
+  geo.translate(zc.x, zc.y, H / 2);
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false, depthTest: false }),
@@ -612,35 +710,35 @@ function buildZone(R, inTol, M, allowed, na = false) {
   mesh.renderOrder = 5;
   g.add(mesh);
   const o = { color, width: 3.5, onTop: true };
-  g.add(fatLine(circlePoints(TP.x, TP.y, 0, R), o), fatLine(circlePoints(TP.x, TP.y, H, R), o));
+  g.add(fatLine(circlePoints(zc.x, zc.y, 0, R), o), fatLine(circlePoints(zc.x, zc.y, H, R), o));
   for (let k = 0; k < 4; k++) {
     const a = (k * Math.PI) / 2 + Math.PI / 4;
-    const x = TP.x + R * Math.cos(a);
-    const y = TP.y + R * Math.sin(a);
+    const x = zc.x + R * Math.cos(a);
+    const y = zc.y + R * Math.sin(a);
     g.add(fatLine([[x, y, 0], [x, y, H]], { color, width: 1.5, onTop: true, opacity: 0.8 }));
   }
   // Label so the cylinder is not mistaken for a gage pin. Anchored on the zone's
   // +X side at the top; placed CALLOUT_PX.zone screen px to the right
   // (the "hole's actual axis" label sits lower right), clear of the TOP/BOTTOM
   // handle labels at any zoom.
-  const anchor = new THREE.Vector3(TP.x + R, TP.y, H);
+  const anchor = new THREE.Vector3(zc.x + R, zc.y, H);
   const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
   const factor = M === 1 ? 'shown ×1, true size' : `shown ×${M}`;
-  const zl = label(`position zone ⌀${fmtLimit(allowed)}<br>(${factor}, not a pin)`, `zone-label ${na ? 'na' : inTol ? 'pass' : 'fail'}`, anchor.toArray());
+  const zl = label(`position zone ⌀${fmtLimit(allowed)}<br>${floats ? 'floats free: no datums' : `(${factor}, not a pin)`}`, `zone-label ${na ? 'na' : inTol ? 'pass' : 'fail'}`, anchor.toArray());
   zl.userData.callout = {
     leader,
     near: { anchor, px: CALLOUT_PX.zone, center: [0, 0.5] }, // left edge at leader end
-    far: { anchor: new THREE.Vector3(TP.x, TP.y - R, 0), at: new THREE.Vector3(TP.x + 2, TP.y - Math.max(R, 6) - 16, 0), center: [0.5, 0] }, // hangs below
+    far: { anchor: new THREE.Vector3(zc.x, zc.y - R, 0), at: new THREE.Vector3(zc.x + 2, zc.y - Math.max(R, 6) - 16, 0), center: [0.5, 0] }, // hangs below
   };
   g.add(leader, zl);
   return g;
 }
 
 /** Actual hole axis (bold), plus radial "r" ticks from true position at each end. */
-function buildAxis(vb, vt, result) {
+function buildAxis(vb, vt, result, zc = TP) {
   const g = new THREE.Group();
   g.name = 'axis';
-  const na = result.verdict === 'REJECT_SIZE';
+  const na = notJudged(result.verdict);
   const color = na ? COLORS.na : result.inTolerance ? COLORS.in : COLORS.out;
   // faint extension beyond the zone ends
   const ext = 4;
@@ -664,7 +762,7 @@ function buildAxis(vb, vt, result) {
   g.add(leader, al);
   // radial offset r at each end (true position -> endpoint)
   for (const [v, z, end] of [[vb, 0, result.bottom], [vt, H, result.top]]) {
-    g.add(fatLine([[TP.x, TP.y, z], [v.x, v.y, z]], { color: na ? COLORS.na : end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));
+    g.add(fatLine([[zc.x, zc.y, z], [v.x, v.y, z]], { color: na ? COLORS.na : end.inside ? COLORS.in : COLORS.out, width: 2, dashed: true, dashSize: 0.6, gapSize: 0.4, onTop: true }));
   }
   return g;
 }
@@ -714,10 +812,10 @@ function buildHandles() {
     bottom.position.set(vb.x, vb.y, 0);
     top.position.set(vt.x, vt.y, H);
     mid.position.set((vb.x + vt.x) / 2, (vb.y + vt.y) / 2, H / 2);
-    const na = result.verdict === 'REJECT_SIZE'; // size rejected: handles neutral, r for information
+    const na = notJudged(result.verdict); // size rejected / no datums: handles neutral, r for information
     bottom.material.color.set(na ? COLORS.na : result.bottom.inside ? COLORS.in : COLORS.out);
     top.material.color.set(na ? COLORS.na : result.top.inside ? COLORS.in : COLORS.out);
-    const txt = (name, e) => (na ? `${name} r=${fmtUp(e.r)} (size rejected)`
+    const txt = (name, e) => (result.verdict === 'NO_DATUMS' ? `${name} (no datums: floats)` : na ? `${name} r=${fmtUp(e.r)} (size rejected)`
       : `${name} r=${fmtAgainst(e.r, result.radius, e.inside)} ${e.inside ? '≤' : '>'} ${fmtLimit(result.radius)} ${e.inside ? '✔' : '✘'}`);
     topLabel.element.textContent = txt('TOP z=10', result.top);
     botLabel.element.textContent = txt('BOTTOM z=0', result.bottom);

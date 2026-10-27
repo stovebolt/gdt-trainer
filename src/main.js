@@ -1,7 +1,8 @@
 // Wires state -> tolerance math -> 3D scene + UI readout.
 import { SPEC, VIEW, PRESETS } from './config.js';
-import { evaluatePart, allowedTolerance, lockDrag, shrinkCausedOut, translateAxis } from './tolerance.js';
-import { fcfHTML } from './fcf.js';
+import { evaluatePart, allowedTolerance, lockDrag, shrinkCausedOut, translateAxis, datumFreedom, lockDragFree, translateAxisFree } from './tolerance.js';
+import { fcfHTML, datumSummary } from './fcf.js';
+import { clampMagnification, maxMagnificationFor } from './exaggeration.js';
 import { createViewer, isPhone } from './viewer/scene.js';
 import { attachDrag } from './interaction.js';
 import { createUI } from './ui.js';
@@ -21,6 +22,8 @@ const state = {
   lock: false, // "Lock in tolerance": user drags/tilts can't take an endpoint out of the allowed zone
   tiltLock: false, // "Lock tilt": both endpoints move together (tilt frozen as it is when turned on)
   shrinkFrom: null, // allowed ⌀ before a zone shrink that happened while locked (for the note)
+  datums: { A: true, B: true, C: true }, // datum references kept in the FCF; dropping frees the zone (ZONE.md §12)
+  datumShrink: false, // a datum change while locked left an endpoint outside the (less free) zone
 };
 const q3 = (v) => Math.round(v * 1e3) / 1e3; // UI inputs in 0.001 mm (metric display)
 const clampSize = (v) => q3(Math.max(SPEC.hole.sizeSlider.min, Math.min(SPEC.hole.sizeSlider.max, v)));
@@ -37,6 +40,7 @@ export function evaluate(s = state) {
     actualSize: s.size,
     mmc: SPEC.hole.mmc,
     lmc: SPEC.hole.lmc,
+    datums: s.datums,
   });
 }
 
@@ -51,7 +55,7 @@ const ui = createUI(document.getElementById('panel'), {
   clampOffset,
   onChange: (patch) => setAxis(patch, { user: true }),
   onPreset: (id) => applyPreset(id),
-  onMagnification: (m) => { state.magnification = m; refresh(); },
+  onMagnification: (m) => setMagnification(m),
   onXray: (on) => { state.xray = on; refresh(); },
   onDrawing: (on) => { state.drawing = on; refresh(); },
   onSize: (v) => setSize(v),
@@ -60,6 +64,7 @@ const ui = createUI(document.getElementById('panel'), {
   onStated: (v) => setStated(v),
   onLock: (on) => setLock(on),
   onTiltLock: (on) => setTiltLock(on),
+  onDatum: (name, on) => setDatum(name, on),
   onResetCamera: () => viewer.resetCamera(),
   onZoomHole: () => viewer.zoomToHole(),
 });
@@ -73,7 +78,26 @@ attachDrag({
   clampOffset,
 });
 
+// Phones cap the exaggeration (see exaggeration.js); other screens keep the full range.
+const setMagnification = (m) => { state.magnification = clampMagnification(m, isPhone(), { min: VIEW.minMagnification, max: VIEW.maxMagnification }); refresh(); };
+
 const allowedNow = () => allowedTolerance({ stated: state.stated, modifier: state.modifier, actualSize: state.size, mmc: SPEC.hole.mmc, lmc: SPEC.hole.lmc }).allowed;
+
+// A patch that asks both ends to move by the same (dx, dy) (the slide handle, the inset axis line).
+function sameShift(patch) {
+  if (!patch.bottom || !patch.top || ['dx', 'dy'].some((a) => patch.bottom[a] === undefined || patch.top[a] === undefined)) return false;
+  return ['dx', 'dy'].every((a) => Math.abs((patch.bottom[a] - state.bottom[a]) - (patch.top[a] - state.top[a])) < 1e-9);
+}
+
+// One endpoint of a locked drag. Freed datum axes use the sliding-zone clamp (the
+// other end is the one already placed); nothing freed is the plain radial clamp;
+// all references dropped: nothing constrains the axis, so nothing to lock.
+function lockEnd(k, next) {
+  const fr = datumFreedom(state.datums);
+  if (fr.floats) return next;
+  if (!fr.slides) return lockDrag({ prev: state[k], next, allowed: allowedNow() });
+  return lockDragFree({ prev: state[k], next, other: state[k === 'bottom' ? 'top' : 'bottom'], allowed: allowedNow(), free: { x: fr.freeX, y: fr.freeY } });
+}
 
 // user = a drag or tilt/offset control: clamped when locked. Presets are not.
 function setAxis(patch, { user = false } = {}) {
@@ -84,16 +108,27 @@ function setAxis(patch, { user = false } = {}) {
     // clamped so neither end leaves the zone (whichever would leave first).
     const ds = ['bottom', 'top'].filter((k) => patch[k]).map((k) => { const n = { ...state[k], ...patch[k] }; return { dx: n.dx - state[k].dx, dy: n.dy - state[k].dy }; });
     const delta = ds.length ? { dx: ds.reduce((a, d) => a + d.dx, 0) / ds.length, dy: ds.reduce((a, d) => a + d.dy, 0) / ds.length } : { dx: 0, dy: 0 };
-    const t = translateAxis({ bottom: state.bottom, top: state.top, delta, allowed: state.lock ? allowedNow() : null, maxDev: VIEW.maxDeviation });
+    const fr = datumFreedom(state.datums);
+    const allowed = state.lock && !fr.floats ? allowedNow() : null;
+    const t = fr.slides
+      ? translateAxisFree({ bottom: state.bottom, top: state.top, delta, allowed, free: { x: fr.freeX, y: fr.freeY }, maxDev: VIEW.maxDeviation })
+      : translateAxis({ bottom: state.bottom, top: state.top, delta, allowed, maxDev: VIEW.maxDeviation });
+    state.bottom = t.bottom; state.top = t.top;
+  } else if (user && state.lock && sameShift(patch) && datumFreedom(state.datums).slides) {
+    // Slide handle / axis drag with a freed zone: both ends move by the same delta, so use the
+    // translation clamp (free axis unlimited, held axis walled) instead of leap-frogging the ends.
+    const fr = datumFreedom(state.datums);
+    const d = { dx: patch.bottom.dx - state.bottom.dx, dy: patch.bottom.dy - state.bottom.dy };
+    const t = translateAxisFree({ bottom: state.bottom, top: state.top, delta: d, allowed: allowedNow(), free: { x: fr.freeX, y: fr.freeY }, maxDev: VIEW.maxDeviation });
     state.bottom = t.bottom; state.top = t.top;
   } else for (const k of ['bottom', 'top']) {
     if (!patch[k]) continue;
     const next = { ...state[k], ...patch[k] };
-    state[k] = user && state.lock ? lockDrag({ prev: state[k], next, allowed: allowedNow() }) : next;
+    state[k] = user && state.lock ? lockEnd(k, next) : next;
   }
   // A preset moves the axis wholesale: any OUT is now the axis's doing. A locked
   // drag can't push an outside endpoint further out, so the shrink note stays.
-  if (!user || !state.lock) state.shrinkFrom = null;
+  if (!user || !state.lock) { state.shrinkFrom = null; state.datumShrink = false; }
   refresh();
 }
 
@@ -114,8 +149,20 @@ const setModifier = (m) => changeZone(() => { if (m === 'RFS' && state.stated <=
 const setStated = (v) => changeZone(() => { const s = clampStated(v); if (state.modifier === 'RFS' && s <= 0) return false; state.stated = s; });
 // Lock tilt never moves the axis by itself: it only freezes the current tilt.
 const setTiltLock = (on) => { state.tiltLock = !!on; refresh(); };
-const setLock = (on) => { state.lock = !!on; if (!state.lock) state.shrinkFrom = null; refresh(); };
-export const shrinkNoteFor = (s, res) => res.verdict === 'OUT' && shrinkCausedOut({ rBottom: res.bottom.r, rTop: res.top.r, allowedBefore: s.shrinkFrom, allowedNow: res.tolerance });
+const setLock = (on) => { state.lock = !!on; if (!state.lock) { state.shrinkFrom = null; state.datumShrink = false; } refresh(); };
+// Datum references never move the axis. Restoring one while locked can leave an endpoint
+// outside the less free zone: the axis stays put and a note explains the OUT.
+function setDatum(name, on) {
+  if (!['A', 'B', 'C'].includes(name)) throw new Error(`unknown datum ${name}`);
+  const before = evaluate().verdict;
+  state.datums = { ...state.datums, [name]: !!on };
+  const now = evaluate().verdict;
+  if (state.lock && now === 'OUT' && before !== 'OUT') state.datumShrink = true;
+  else if (now !== 'OUT') state.datumShrink = false;
+  refresh();
+}
+const setDatums = (d) => { for (const k of ['A', 'B', 'C']) if (k in d) setDatum(k, d[k]); };
+export const shrinkNoteFor = (s, res) => (res.verdict === 'OUT' && shrinkCausedOut({ rBottom: res.bottom.r, rTop: res.top.r, allowedBefore: s.shrinkFrom, allowedNow: res.tolerance })) ? 'size' : (res.verdict === 'OUT' && s.datumShrink ? 'datum' : '');
 
 function applyPreset(id) {
   const p = PRESETS.find((x) => x.id === id);
@@ -125,10 +172,15 @@ function applyPreset(id) {
 
 let last;
 function refresh() {
+  const cap = maxMagnificationFor(isPhone(), VIEW.maxMagnification);
+  if (state.magnification > cap) state.magnification = cap; // e.g. rotated/resized into a phone layout
   last = evaluate();
+  last.magMax = cap;
   viewer.update(state, last);
   viewer.setDrawing(state.drawing);
   document.getElementById('fcf-chip').innerHTML = fcfHTML(state);
+  document.getElementById('fcf-chip').setAttribute('aria-label', `Feature control frame: position, diameter ${state.stated}, datums ${datumFreedom(state.datums).kept.join(' ') || 'none'}`);
+  viewer.setDatumsDim(state.datums);
   const btn = document.getElementById('drawing-btn');
   btn.setAttribute('aria-pressed', String(state.drawing));
   btn.textContent = state.drawing ? 'Hide drawing' : 'Show drawing';
@@ -136,6 +188,9 @@ function refresh() {
   // Display-only lock badges in the 3D view (shown only while each lock is on).
   document.getElementById('badge-tilt').hidden = !state.tiltLock;
   document.getElementById('badge-tol').hidden = !state.lock;
+  const dsum = datumSummary(state.datums, last.zone);
+  document.getElementById('badge-datum').hidden = !dsum.badge;
+  document.getElementById('badge-datum').textContent = dsum.badge;
   last.presetNote = PRESETS.find((p) => p.note && ['bottom', 'top'].every((k) => p[k].dx === state[k].dx && p[k].dy === state[k].dy))?.note ?? '';
   ui.render(state, last);
 }
@@ -163,6 +218,8 @@ const qp = new URLSearchParams(location.search);
 const on = (v) => v === '1' || v === 'true' || v === 'on';
 if (qp.has('lock')) setLock(on(qp.get('lock')));
 if (qp.has('tiltlock')) setTiltLock(on(qp.get('tiltlock')));
+// ?datums=AB keeps only A and B (C dropped); ?datums=none drops all three
+if (qp.has('datums')) { const v = qp.get('datums').toUpperCase(); setDatums({ A: v.includes('A'), B: v.includes('B'), C: v.includes('C') }); }
 if (qp.has('view') && ['top', 'front', 'side', '3d'].includes(qp.get('view'))) viewer.setView(qp.get('view'), { ms: 0 });
 
 // Small hook for automated browser checks / the Domain Expert's console use.
@@ -171,13 +228,17 @@ window.gdt = {
   setAxis,
   applyPreset,
   result: () => last,
-  setMagnification: (m) => { state.magnification = m; refresh(); },
+  setMagnification,
+  magnificationMax: () => maxMagnificationFor(isPhone(), VIEW.maxMagnification),
+  reframe: () => viewer.reframe(),
   setDrawing: (on) => { state.drawing = !!on; refresh(); },
   setSize,
   setModifier,
   setLock,
   setStated,
   setTiltLock,
+  setDatum,
+  setDatums,
   setView: (v, o) => viewer.setView(v, o),
   setProjection: (p) => viewer.setProjection(p),
   view: () => viewer.view,

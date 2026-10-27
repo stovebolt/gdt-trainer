@@ -2,24 +2,29 @@
 // 2D top-down "zone inset" (also draggable). No Three.js dependency.
 import { SPEC, VIEW, PRESETS } from './config.js';
 import { fmt, fmtLimit, fmtUp, fmtSigned, fmtAgainst, fmtMargin } from './format.js';
-import { fcfHTML, fmtNote, MMC_SYM, LMC_SYM, modSym } from './fcf.js';
+import { notJudged } from './tolerance.js';
+import { explainFor, explainHTML } from './explain.js';
+import { UI_TEXT } from './explain-copy.js';
+import { fcfHTML, fmtNote, MMC_SYM, LMC_SYM, modSym, datumSummary, NO_DATUM_TEXT, PERP_LABEL } from './fcf.js';
 
 const SIZE_LIMITS = `⌀${fmt(SPEC.hole.mmc)}–${fmt(SPEC.hole.lmc)}`;
 /** Size note shown next to every verdict (same length IN / REJECT, so no layout jump). */
 export const sizeNote = (size) => size.sizeOk
   ? `Hole size ⌀${fmt(size.actualSize)} ✔ within ${SIZE_LIMITS}`
   : `Hole size ⌀${fmt(size.actualSize)} ✘ outside ${SIZE_LIMITS}`;
-export const STATUS = { IN: 'IN TOLERANCE', OUT: 'OUT OF TOLERANCE', REJECT_SIZE: 'REJECT: size', INVALID_TOL: 'INVALID: ⌀0 at RFS' };
+export const STATUS = { IN: 'IN TOLERANCE', OUT: 'OUT OF TOLERANCE', REJECT_SIZE: 'REJECT: size', INVALID_TOL: 'INVALID: ⌀0 at RFS', NO_DATUMS: 'NO DATUMS' };
 /** Shown when a stated ⌀0 is refused at RFS (Sally). */
 /** Teaching line shown (small) at MMC and LMC. */
 /** Lock on, zone shrank (size / mode / stated) and that shrink caused the OUT. */
 export const SHRINK_NOTE = 'zone shrank: less bonus at this size';
+/** Lock on, a datum was restored and the less free zone left the axis outside. */
+export const DATUM_SHRINK_NOTE = 'datum restored: zone less free, axis unmoved';
 export const TEACH = 'MMC protects assembly, LMC protects material.';
 export const ZERO_REASON = '⌀0 is only meaningful at MMC or LMC, where bonus supplies the tolerance.';
-const BADGE = { IN: '✔ IN', OUT: '✘ OUT', REJECT_SIZE: '✘ REJECT: size', INVALID_TOL: '✘ INVALID' };
+const BADGE = { IN: '✔ IN', OUT: '✘ OUT', REJECT_SIZE: '✘ REJECT: size', INVALID_TOL: '✘ INVALID', NO_DATUMS: '– NO DATUMS' };
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onSize, onModifier, onStated, onLock, onTiltLock, onResetCamera, onZoomHole, clampOffset }) {
+export function createUI(root, { onChange, onPreset, onMagnification, onXray, onDrawing, onSize, onModifier, onStated, onLock, onTiltLock, onDatum, onResetCamera, onZoomHole, clampOffset }) {
   root.innerHTML = template();
   const $ = (sel) => root.querySelector(sel);
 
@@ -58,6 +63,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
       else msg('');
     });
   }
+  for (const d of ['A', 'B', 'C']) $(`#datum-${d}`).addEventListener('click', () => onDatum(d, $(`#datum-${d}`).getAttribute('aria-pressed') !== 'true'));
   $('#tilt-lock-btn').addEventListener('click', () => onTiltLock($('#tilt-lock-btn').getAttribute('aria-pressed') !== 'true'));
   $('#lock-btn').addEventListener('click', () => onLock($('#lock-btn').getAttribute('aria-pressed') !== 'true'));
   $('#n-stated').addEventListener('change', (e) => {
@@ -69,6 +75,24 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
   });
   let lastStated = '';
 
+  // --- Explain this setup: collapsed on phones, open on larger screens ----------
+  const explain = $('#explain');
+  explain.open = !window.matchMedia('(max-width: 700px), (max-height: 500px)').matches;
+  const EX_CONFIGS = [{}, { C: false }, { B: false }, { B: false, C: false }, { A: false }, { A: false, B: false }, { A: false, C: false }, { A: false, B: false, C: false }];
+  let exWidth = -1;
+  // Reserve the tallest explainer text (all configs x RFS/MMC/LMC) so the panel never shifts when the setup changes.
+  function reserveExplainHeight() {
+    const sz = $('#ex-sizer'), w = sz.offsetWidth;
+    if (w === exWidth || !w) return;
+    exWidth = w;
+    let h = 0;
+    for (const d of EX_CONFIGS) for (const m of ['RFS', 'MMC', 'LMC']) { sz.innerHTML = explainHTML(explainFor(d, m), m); h = Math.max(h, sz.offsetHeight); }
+    sz.innerHTML = '';
+    $('#ex-body').style.minHeight = `${h}px`;
+  }
+
+  new ResizeObserver(() => reserveExplainHeight()).observe($('#ex-sizer')); // width changed (scrollbar, rotation): re-measure
+
   const inset = createInset($('#inset'), { onChange, clampOffset });
 
   function render(state, res) {
@@ -77,6 +101,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
       f.range.value = String(v);
       if (document.activeElement !== f.num) f.num.value = fmtSigned(v).replace('−', '-').replace('+', '');
     }
+    $('#mag').max = String(res.magMax ?? VIEW.maxMagnification);
     $('#mag').value = String(state.magnification);
     $('#mag-val').textContent = `×${state.magnification}`;
     $('#xray').checked = state.xray;
@@ -85,7 +110,19 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     if (document.activeElement !== $('#n-size')) $('#n-size').value = fmt(state.size);
     lastStated = fmt(state.stated);
     if (document.activeElement !== $('#n-stated')) $('#n-stated').value = lastStated;
+    $('#shrink-note').textContent = res.shrinkNote === 'datum' ? DATUM_SHRINK_NOTE : SHRINK_NOTE;
     $('#shrink-note').style.visibility = res.shrinkNote ? 'visible' : 'hidden';
+    const ds = datumSummary(state.datums, res.zone);
+    for (const d of ['A', 'B', 'C']) $(`#datum-${d}`).setAttribute('aria-pressed', String(state.datums[d]));
+    const ex = explainFor(state.datums, state.modifier);
+    $('#ex-config').textContent = `${ex.label} · ${state.modifier}`;
+    $('#ex-body').innerHTML = explainHTML(ex, state.modifier);
+    reserveExplainHeight();
+    $('#slide-line').textContent = ds.slide || '\u00a0';
+    $('#slide-line').style.visibility = ds.slide ? 'visible' : 'hidden';
+    $('#datum-note').textContent = ds.note || '\u00a0';
+    $('#datum-note').style.visibility = ds.note ? 'visible' : 'hidden';
+    $('#datum-note').dataset.kind = ds.freedom.floats ? 'floats' : ds.freedom.perpOnly ? 'perp' : ds.note ? 'a' : '';
     $('#lock-btn').setAttribute('aria-pressed', String(!!state.lock));
     $('#tilt-lock-btn').setAttribute('aria-pressed', String(!!state.tiltLock));
     $('#preset-note').textContent = res.presetNote || '\u00a0';
@@ -97,6 +134,11 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#spec-fcf').innerHTML = fcfHTML(state, 'fcf big');
     $('#spec-zone').textContent = `${state.modifier} · cylindrical zone (⌀ = allowed)`;
     const rej = res.verdict === 'REJECT_SIZE';
+    const nod = res.verdict === 'NO_DATUMS';
+    const na = rej || nod; // neutral: position not judged
+    const slid = ds.freedom.slides;
+    const perp = ds.freedom.perpOnly; // A only: reads like a perpendicularity control
+    $('#pos-label').innerHTML = perp ? `<b>${PERP_LABEL}</b>, reported as 2r` : 'Position (reported as a <b>diameter</b> = 2r, not a radius)';
     const bon = state.modifier !== 'RFS';
     $('#tol-line').innerHTML = bon && rej
       ? `stated ⌀${fmt(sz.stated)} + bonus n/a <span class="muted">(size rejected)</span>`
@@ -113,15 +155,21 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#teach-line').style.visibility = bon ? 'visible' : 'hidden';
     $('#th-r').textContent = `r vs ${fmtLimit(R)}`;
     $('#th-d').textContent = `2r vs ⌀${fmtLimit(TOL)}`;
-    $('#rule-note').innerHTML = `mm, offsets from true position. r = √(dx² + dy²). IN only if <b>both</b> endpoints have r ≤ ${fmtLimit(R)} (boundary inclusive). Metric display: up to 3 decimals; measured values round up, limits round down.`;
+    $('#rule-note').innerHTML = `mm, offsets from ${slid ? `the slid zone centre (true position ${ds.freedom.freeX ? `dx ${fmtSigned(res.zone.dx)}` : ''}${ds.freedom.freeX && ds.freedom.freeY ? ', ' : ''}${ds.freedom.freeY ? `dy ${fmtSigned(res.zone.dy)}` : ''})` : 'true position'}. r = √(dx² + dy²). IN only if <b>both</b> endpoints have r ≤ ${fmtLimit(R)} (boundary inclusive). Metric display: up to 3 decimals; measured values round up, limits round down.`;
     for (const el of root.querySelectorAll('.size-note')) el.textContent = sizeNote(sz);
 
     for (const end of ['bottom', 'top']) {
       const e = res[end];
       const row = $(`#row-${end}`);
-      row.className = rej ? 'na' : e.inside ? 'pass' : 'fail';
-      row.querySelector('.dx').textContent = fmtSigned(e.dx);
-      row.querySelector('.dy').textContent = fmtSigned(e.dy);
+      row.className = na ? 'na' : e.inside ? 'pass' : 'fail';
+      row.querySelector('.dx').textContent = fmtSigned(slid ? e.rx : e.dx);
+      row.querySelector('.dy').textContent = fmtSigned(slid ? e.ry : e.dy);
+      if (nod) { // nothing to measure against: the zone floats
+        row.querySelector('.r').textContent = '—';
+        row.querySelector('.d').textContent = '—';
+        row.querySelector('.mark').textContent = 'n/a';
+        continue;
+      }
       if (rej) { // size rejected: values for information only, no comparison
         row.querySelector('.r').textContent = fmtUp(e.r);
         row.querySelector('.d').textContent = `⌀${fmtUp(e.deviation)}`;
@@ -134,18 +182,20 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     }
     const worst = res.top.r >= res.bottom.r ? 'top' : 'bottom';
     const overall = $('#overall');
-    overall.className = `overall ${res.accept ? 'pass' : 'fail'}`;
-    const posShown = rej ? fmtUp(res.deviation) : fmtAgainst(res.deviation, TOL, res.inTolerance);
-    $('#pos-value').textContent = `⌀${posShown}`;
-    $('#pos-compare').innerHTML = rej ? '<span class="muted">(info)</span>' : `${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}`;
+    overall.className = `overall ${nod ? 'na' : res.accept ? 'pass' : 'fail'}`;
+    const posShown = nod ? '—' : rej ? fmtUp(res.deviation) : fmtAgainst(res.deviation, TOL, res.inTolerance);
+    $('#pos-value').textContent = nod ? '—' : `⌀${posShown}`;
+    $('#pos-compare').innerHTML = nod ? '' : rej ? '<span class="muted">(info)</span>' : `${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}`;
     $('#pos-status').textContent = STATUS[res.verdict];
-    $('#pos-detail').textContent = rej ? `= 2 × r(${worst}) = 2 × ${fmtUp(res[worst].r)} · not judged: size rejected` : `= 2 × r(${worst}) = 2 × ${fmtAgainst(res[worst].r, R, res.inTolerance)} · margin ${fmtMargin(res.deviation, TOL, res.inTolerance)} mm`;
+    $('#pos-detail').textContent = nod ? NO_DATUM_TEXT : rej ? `= 2 × r(${worst}) = 2 × ${fmtUp(res[worst].r)} · not judged: size rejected` : `= 2 × r(${worst}) = 2 × ${fmtAgainst(res[worst].r, R, res.inTolerance)} · margin ${fmtMargin(res.deviation, TOL, res.inTolerance)} mm`;
     $('#mid').textContent = `mid-plane (z=5) offset: dx ${fmtSigned(res.mid.dx)}, dy ${fmtSigned(res.mid.dy)} · tilt ${fmt(res.tilt)}°`;
 
     const badge = document.getElementById('status-badge');
-    badge.className = `status-badge ${res.accept ? 'pass' : 'fail'}`;
-    const small = res.verdict === 'REJECT_SIZE' ? `hole ⌀${fmt(sz.actualSize)} outside ${SIZE_LIMITS}`
+    badge.className = `status-badge ${nod ? 'na' : res.accept ? 'pass' : 'fail'}`;
+    const small = nod ? NO_DATUM_TEXT : res.verdict === 'REJECT_SIZE' ? `hole ⌀${fmt(sz.actualSize)} outside ${SIZE_LIMITS}`
       : res.verdict === 'INVALID_TOL' ? 'stated ⌀0 needs MMC or LMC'
+      
+      : perp ? `perpendicularity to A ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${bon ? ` ${modSym(state.modifier)}` : ''}`
       : `position ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${bon ? ` ${modSym(state.modifier)}` : ''}`;
     badge.innerHTML = `${BADGE[res.verdict]}<small>${small}</small><span class="size-note">${sizeNote(sz)}</span>`;
     document.getElementById('mag-badge').textContent = `Zone & deviations drawn ×${state.magnification} (display only)`;
@@ -161,8 +211,11 @@ function createInset(svg, { onChange, clampOffset }) {
   svg.setAttribute('viewBox', `${-HALF} ${-HALF} ${2 * HALF} ${2 * HALF}`);
   svg.innerHTML = `
     <g transform="scale(1,-1)">
-      <circle class="grid" r="0.05"/><circle class="grid" r="0.1"/><circle class="grid" r="0.15"/><circle class="grid" r="0.2"/>
-      <line class="grid" x1="${-HALF}" y1="0" x2="${HALF}" y2="0"/><line class="grid" x1="0" y1="${-HALF}" x2="0" y2="${HALF}"/>
+      <g id="i-grid"><circle class="grid" r="0.05"/><circle class="grid" r="0.1"/><circle class="grid" r="0.15"/><circle class="grid" r="0.2"/>
+      <line class="grid" x1="${-HALF}" y1="0" x2="${HALF}" y2="0"/><line class="grid" x1="0" y1="${-HALF}" x2="0" y2="${HALF}"/></g>
+      <g id="i-free" class="free" style="display:none"></g>
+      <path id="i-centre" class="centre" d="M0 -0.016 L0.016 0 L0 0.016 L-0.016 0Z" style="display:none"/>
+      <path id="i-tp" class="tp" d="M-0.02 0H0.02M0 -0.02V0.02" style="display:none"/>
       <circle class="zone" r="${R}"/>
       <line class="axis" id="i-axis"/>
       <circle class="mid" id="i-mid" r="0.007"/>
@@ -170,8 +223,9 @@ function createInset(svg, { onChange, clampOffset }) {
       <circle class="pt" id="i-top" r="0.011" data-end="top"/>
     </g>
     <text x="${-R * 0.72 - 0.065}" y="${R * 0.72 + 0.02}" class="t-zone" id="t-zone">⌀${fmtNote(SPEC.position.tolerance)} position zone</text>
-    <text x="${-HALF + 0.008}" y="${-HALF + 0.022}" class="t-small">top view (from +Z)</text>
-    <text x="${-HALF + 0.008}" y="${HALF - 0.008}" class="t-small">grid rings r = 0.05 / 0.1 / 0.15 / 0.2 mm</text>
+    <text id="t-view" x="${-HALF + 0.008}" y="${-HALF + 0.022}" class="t-small">top view (from +Z)</text>
+    <text id="t-grid" x="${-HALF + 0.008}" y="${HALF - 0.008}" class="t-small">grid rings r = 0.05 / 0.1 / 0.15 / 0.2 mm</text>
+    <text id="t-tp" class="t-small t-tp" style="display:none">true position</text>
     <text id="t-bottom" class="t-pt">B</text><text id="t-top" class="t-pt">T</text>`;
   const q = (id) => svg.querySelector(id);
 
@@ -196,13 +250,13 @@ function createInset(svg, { onChange, clampOffset }) {
     }
     if (!end && (ev.target.id === 'i-mid' || ev.target.id === 'i-axis')) end = 'mid';
     if (!end) return;
-    drag = { end, start: toMM(ev), s: structuredClone(svg.__state) };
+    // Pixel-based: the view may re-centre on the slid zone while dragging, so mm = px × (fixed scale).
+    drag = { end, x0: ev.clientX, y0: ev.clientY, mmPerPx: (2 * HALF) / svg.getBoundingClientRect().width, s: structuredClone(svg.__state) };
     svg.setPointerCapture(ev.pointerId);
   });
   svg.addEventListener('pointermove', (ev) => {
     if (!drag) return;
-    const p = toMM(ev);
-    const d = { dx: p.x - drag.start.x, dy: p.y - drag.start.y };
+    const d = { dx: (ev.clientX - drag.x0) * drag.mmPerPx, dy: -(ev.clientY - drag.y0) * drag.mmPerPx };
     const mv = (o) => ({ dx: clampOffset(o.dx + d.dx), dy: clampOffset(o.dy + d.dy) });
     const next = {};
     if (drag.end !== 'bottom') next.top = mv(drag.s.top);
@@ -213,16 +267,54 @@ function createInset(svg, { onChange, clampOffset }) {
 
   function render(state, res) {
     svg.__state = { bottom: { ...state.bottom }, top: { ...state.top } };
-    const clip = (v) => Math.max(-HALF * 0.97, Math.min(HALF * 0.97, v));
-    const b = { x: clip(state.bottom.dx), y: clip(state.bottom.dy) };
-    const t = { x: clip(state.top.dx), y: clip(state.top.dy) };
-    const tone = (ok) => (res.verdict === 'REJECT_SIZE' ? 'na' : ok ? 'pass' : 'fail');
-    q('.zone').setAttribute('class', `zone ${tone(res.inTolerance)}`);
-    q('.zone').setAttribute('r', res.radius);
+    const f = res.freedom;
+    // With a slid zone the view re-centres on it (rings stay r-from-zone-centre); otherwise it is the fixed true-position view.
+    const zc = f.slides ? { x: res.zone.dx, y: res.zone.dy } : { x: 0, y: 0 };
+    svg.setAttribute('viewBox', `${zc.x - HALF} ${-zc.y - HALF} ${2 * HALF} ${2 * HALF}`);
+    q('#i-grid').setAttribute('transform', `translate(${zc.x} ${zc.y})`);
+    const clip = (v, c) => Math.max(c - HALF * 0.97, Math.min(c + HALF * 0.97, v));
+    const b = { x: clip(state.bottom.dx, zc.x), y: clip(state.bottom.dy, zc.y) };
+    const t = { x: clip(state.top.dx, zc.x), y: clip(state.top.dy, zc.y) };
+    const na = notJudged(res.verdict);
+    const tone = (ok) => (na ? 'na' : ok ? 'pass' : 'fail');
+    const zone = q('.zone');
+    zone.setAttribute('class', `zone ${tone(res.inTolerance)}`);
+    zone.setAttribute('r', res.radius);
+    zone.setAttribute('cx', zc.x);
+    zone.setAttribute('cy', zc.y);
     const tz = q('#t-zone');
     tz.textContent = `⌀${fmtLimit(res.tolerance)} position zone`;
-    tz.setAttribute('x', -res.radius * 0.72 - 0.065);
-    tz.setAttribute('y', res.radius * 0.72 + 0.02);
+    tz.setAttribute('x', zc.x - res.radius * 0.72 - 0.065);
+    tz.setAttribute('y', -zc.y + res.radius * 0.72 + 0.02);
+    // freed degrees of freedom: the band the zone can sweep + double arrows beside it
+    const fr = q('#i-free');
+    const showFree = f.slides || f.floats;
+    fr.style.display = showFree ? '' : 'none';
+    if (showFree) {
+      const r = res.radius, o = r + 0.012, h = 0.02;
+      const arrow = (dx, dy) => { // tip at distance o+0.04 from centre along (dx,dy)
+        const tip = [zc.x + dx * (o + 0.04), zc.y + dy * (o + 0.04)], base = [zc.x + dx * o, zc.y + dy * o];
+        const px = -dy, py = dx;
+        return `<path d="M${base} L${tip}" /><path class="head" d="M${tip} L${tip[0] - dx * h + px * h * 0.6} ${tip[1] - dy * h + py * h * 0.6} L${tip[0] - dx * h - px * h * 0.6} ${tip[1] - dy * h - py * h * 0.6}Z"/>`;
+      };
+      fr.innerHTML = f.floats ? '' :
+        (f.freeX ? `<rect class="band" x="${zc.x - HALF}" y="${zc.y - r}" width="${2 * HALF}" height="${2 * r}"/>${arrow(1, 0)}${arrow(-1, 0)}` : '') +
+        (f.freeY ? `<rect class="band" x="${zc.x - r}" y="${zc.y - HALF}" width="${2 * r}" height="${2 * HALF}"/>${arrow(0, 1)}${arrow(0, -1)}` : '');
+    }
+    const ctr = q('#i-centre');
+    ctr.style.display = f.slides ? '' : 'none';
+    ctr.setAttribute('transform', `translate(${zc.x} ${zc.y})`);
+    // true position cross + label, only when the zone has slid away from it (and it is in view)
+    const tp = q('#i-tp'), tpt = q('#t-tp');
+    const away = f.slides && Math.hypot(zc.x, zc.y) > 0.02;
+    const inView = Math.abs(zc.x) < HALF * 0.85 && Math.abs(zc.y) < HALF * 0.85;
+    tp.style.display = away && inView ? '' : 'none';
+    tpt.style.display = tp.style.display;
+    tpt.setAttribute('x', -0.05); tpt.setAttribute('y', 0.05);
+    q('#t-view').textContent = f.slides ? 'top view · ◆ auto best-fit zone centre' : 'top view (from +Z)';
+    q('#t-view').setAttribute('x', zc.x - HALF + 0.008); q('#t-view').setAttribute('y', -zc.y - HALF + 0.022);
+    q('#t-grid').setAttribute('x', zc.x - HALF + 0.008); q('#t-grid').setAttribute('y', -zc.y + HALF - 0.008);
+    q('#t-grid').textContent = f.slides ? 'rings r = 0.05 / 0.1 / 0.15 / 0.2 mm from the slid zone centre' : 'grid rings r = 0.05 / 0.1 / 0.15 / 0.2 mm';
     Object.entries({ x1: b.x, y1: b.y, x2: t.x, y2: t.y }).forEach(([k, v]) => q('#i-axis').setAttribute(k, v));
     q('#i-axis').setAttribute('class', `axis ${tone(res.inTolerance)}`);
     q('#i-mid').setAttribute('cx', (b.x + t.x) / 2);
@@ -263,7 +355,7 @@ function template() {
   </header>
 
   <section id="overall" class="overall">
-    <div class="pos-label">Position (reported as a <b>diameter</b> = 2r, not a radius)</div>
+    <div id="pos-label" class="pos-label">Position (reported as a <b>diameter</b> = 2r, not a radius)</div>
     <div class="pos-line"><span id="pos-value"></span> <span id="pos-compare"></span> <span id="pos-status"></span></div>
     <div id="pos-detail" class="muted"></div>
     <div id="tol-line" class="tol-line"></div>
@@ -285,6 +377,24 @@ function template() {
     </div>
     <div id="mc-msg" class="mc-msg" role="status"></div>
     <div class="muted small">Size limits ${SIZE_LIMITS} (MMC ⌀${fmt(SPEC.hole.mmc)}). Outside them the part is <b>REJECT: size</b>, whatever the axis. At MMC, bonus = actual size − ${fmt(SPEC.hole.mmc)}; at LMC, bonus = ${fmt(SPEC.hole.lmc)} − actual size.</div>
+  </section>
+
+  <section id="datums" class="datums">
+    <h2>Datum references in the FCF</h2>
+    <div class="datum-row">
+      <span class="seg datum-seg" role="group" aria-label="Datum references kept in the feature control frame"><button id="datum-A" type="button" aria-pressed="true" title="Datum A: primary plane (perpendicular to the hole)">A</button><button id="datum-B" type="button" aria-pressed="true" title="Datum B: locates the zone in X (dropped: the zone slides in X)">B</button><button id="datum-C" type="button" aria-pressed="true" title="Datum C: locates the zone in Y (dropped: the zone slides in Y)">C</button></span>
+      <span class="muted small">on = kept in the FCF</span>
+    </div>
+    <div id="slide-line" class="slide-line" style="visibility:hidden">\u00a0</div>
+    <div id="datum-note" class="datum-note" style="visibility:hidden">\u00a0</div>
+  </section>
+
+  <section id="explain-wrap" class="explain-wrap">
+    <details id="explain" class="explain">
+      <summary id="ex-summary"><span class="ex-title">${UI_TEXT.title}</span><span id="ex-config" class="ex-config"></span></summary>
+      <div id="ex-body" class="ex-body"></div>
+    </details>
+    <div id="ex-sizer" class="ex-body ex-sizer" aria-hidden="true"></div>
   </section>
 
   <section>

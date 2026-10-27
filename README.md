@@ -203,3 +203,27 @@ display its result.
   - `gdt.setTiltLock(true)`, `gdt.setLock(true)`, `gdt.setView('top')`,
     `gdt.setProjection('ortho')`.
   - URL: `?tiltlock=1&lock=1&view=top`.
+
+## Datum references (ZONE.md §12, branch `datum-suppress`, preview only)
+
+- **A / B / C toggles** in the panel ("Datum references in the FCF"), all on by
+  default. Turning one off removes it from the feature control frame everywhere
+  (panel, phone chip, 3D drawing) and frees the zone:
+  - **C dropped:** the zone slides in Y. **B dropped:** it slides in X.
+  - **B and C dropped (A only):** slides in X and Y, stays perpendicular to A,
+    so it acts like a perpendicularity control (readout labelled "⌀ (acts like perpendicularity to A)"; ⌀ = lateral spread of the ends).
+  - **A dropped alone:** nothing visible changes, and an on-screen note says so.
+  - **A, B and C dropped:** the zone floats free and the control means
+    nothing for a single hole. Neutral gray, never IN/OUT: "No datum reference: position is undefined".
+- The freed directions are drawn as a magenta slab and arrows in the 3D, top,
+  front and side views, and as a band in the panel inset. The zone is drawn at
+  its best-fit (slid) centre, and the readout table measures r from that centre.
+- Locks follow the freedom: with **Lock in tolerance**, the freed axis has no
+  wall, the held axis does. **Lock tilt** translates freely along a freed axis.
+- **For lessons:** `gdt.setDatum('C', false)`, `gdt.setDatums({A:true,B:false,C:false})`;
+  URL `?datums=AB` keeps A and B (`?datums=none` drops all three).
+- Tests: `tests/datums.test.js` (pure math in `src/tolerance.js`: `datumFreedom`,
+  `fitZone`, `evaluatePositionDatums`, `lockDragFree`, `translateAxisFree`).
+- The automatic best-fit zone centre is drawn as a small ◆ (display only). Large slides
+  auto-reframe the view (pan, dolly out only if needed); phones cap the exaggeration at ×40;
+  Reset camera is the manual fallback.

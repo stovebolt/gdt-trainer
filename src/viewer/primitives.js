@@ -16,6 +16,7 @@ export const COLORS = Object.freeze({
   datumB: 0xd97706,
   datumC: 0x7c3aed,
   truePos: 0x0f172a,
+  free: 0xc026d3, // freed degrees of freedom (datum references dropped)
 });
 
 const lineMaterials = new Set();

@@ -291,6 +291,6 @@ button:hover { background: #e2e8f0; }
 .ex-rule { background: var(--ink); color: #fff; }
 .ex-practice { background: #fff; color: #475569; border: 1px dashed #64748b; }
 .ex-line-practice .ex-text { font-style: italic; color: #334155; }
-.ex-cite { display: inline-block; font-size: 10.5px; color: #64748b; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
+.ex-cite { display: inline-block; font-size: 10.5px; color: #64748b; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: normal; max-width: 100%; box-sizing: border-box; }
 .ex-foot { margin-top: 6px; font-size: 11.5px; color: #64748b; }
 .explain:not([open]) + .ex-sizer { display: block; }

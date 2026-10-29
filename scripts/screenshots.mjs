@@ -448,16 +448,16 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
     // ---- Position / Virtual condition toggle (Sally) ----
     {
       const CK = ckV, TAP = (sel) => page.click(sel), SHOT = (n) => page.screenshot({ path: `screenshots/${n.replace(/-/g, '_')}.png` });
-      const VC = () => page.evaluate(() => { const r = window.gdt.result(), e = (id) => document.getElementById(id); const btn = document.querySelector('#mode-row [data-mode="vc"]'); const lab = document.querySelector('.vc-label'); const zl = [...document.querySelectorAll('.zone-label')].find((x) => !x.classList.contains('vc-label'));
+      const VC = () => page.evaluate(() => { const r = window.gdt.result(), e = (id) => document.getElementById(id); const btn = document.querySelector('#view-row [data-mode="vc"]'); const lab = document.querySelector('.vc-label'); const zl = [...document.querySelectorAll('.zone-label')].find((x) => !x.classList.contains('vc-label'));
         return { verdict: r.verdict, shown: r.vcShown, applies: r.vc.applies, inside: r.vc.inside, lockR: r.vc.lockRadius, kind: r.vc.kind, vc: r.vc.vc, cmin: r.vc.clearance?.min, clear: e('vc-clear').innerText, clearCls: e('vc-clear').className, disabled: btn.disabled, pressed: btn.getAttribute('aria-pressed'), note: e('vc-rfs-note').hidden ? '' : e('vc-rfs-note').innerText, label: lab ? lab.innerText.replace(/\s+/g, ' ') : '', zoneLabel: !!zl, mag: e('mag-badge').innerText, tb: r.top.r, bb: r.bottom.r, zone: r.zone }; });
       const vcReset = () => page.evaluate(() => { const g = window.gdt; g.setLock(false); g.setTiltLock(false); g.setDatums({ A: true, B: true, C: true }); g.setStated(0.25); g.setModifier('RFS'); g.setSize(10.1); g.setVcView(false); g.applyPreset('centered'); });
       await vcReset(); await page.waitForTimeout(200);
       let v = await VC();
-      CK('VC toggle at RFS: "Virtual condition" disabled, note "Virtual condition applies at MMC or LMC.", Position view stays', v.disabled && v.note === 'Virtual condition applies at MMC or LMC.' && !v.shown && v.zoneLabel && v.pressed === 'false', v);
-      await page.locator('#mode-row [data-mode="vc"]').click({ force: true }).catch(() => {}); await page.waitForTimeout(150); v = await VC();
+      CK('VC toggle at RFS: "Virtual condition" disabled, note "Virtual condition applies at MMC or LMC.", Position view stays', v.disabled && v.note === 'Virtual condition applies at MMC or LMC.' && v.clear === v.note && !v.shown && v.zoneLabel && v.pressed === 'false', v);
+      await page.locator('#view-row [data-mode="vc"]').click({ force: true }).catch(() => {}); await page.waitForTimeout(150); v = await VC();
       CK('tapping the disabled VC button at RFS does nothing', !v.shown && v.zoneLabel, v);
       await page.evaluate(() => window.gdt.setModifier('MMC')); await page.waitForTimeout(100);
-      await TAP('#mode-row [data-mode="vc"]'); await page.waitForTimeout(400); v = await VC();
+      await TAP('#view-row [data-mode="vc"]'); await page.waitForTimeout(400); v = await VC();
       CK('MMC: Virtual condition on: red VC pin ⌀9.75 drawn (label), zone label gone, note hidden, badge says VC true size', v.shown && v.pressed === 'true' && v.kind === 'pin' && v.vc === 9.75 && /VC pin ⌀9\.75 \(MMC\)/.test(v.label) && !v.zoneLabel && v.note === '' && /VC true size/.test(v.mag), v);
       const sizes = [];
       for (const s of [10, 10.1, 10.2]) { await page.evaluate((s) => window.gdt.setSize(s), s); await page.waitForTimeout(80); const x = await VC(); sizes.push([s, x.vc, x.label.match(/⌀[\d.]+/)?.[0]]); }
@@ -491,7 +491,7 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
       await page.evaluate(() => window.gdt.setModifier('RFS')); await page.waitForTimeout(150); v = await VC();
       CK('switching to RFS while in VC view: back to Position view, VC disabled, note shown', !v.shown && v.disabled && v.zoneLabel && v.note !== '', v);
       if (SHOT) await SHOT('vc-rfs-disabled');
-      await TAP('#mode-row [data-mode="position"]'); await vcReset(); await page.waitForTimeout(200);
+      await vcReset(); await page.waitForTimeout(200);
     }
     // ---- Explain this setup (desktop: open by default, updates live) ----
     {

@@ -199,8 +199,8 @@ function refresh() {
   // Display-only lock badges in the 3D view (shown only while each lock is on).
   document.getElementById('badge-tilt').hidden = !state.tiltLock;
   document.getElementById('badge-tol').hidden = !state.lock;
-  for (const b of document.querySelectorAll('#mode-row [data-mode]')) b.setAttribute('aria-pressed', String((b.dataset.mode === 'vc') === last.vcShown));
-  const vcBtn = document.querySelector('#mode-row [data-mode="vc"]');
+  for (const b of document.querySelectorAll('#view-row [data-mode]')) b.setAttribute('aria-pressed', String((b.dataset.mode === 'vc') === last.vcShown));
+  const vcBtn = document.querySelector('#view-row [data-mode="vc"]');
   vcBtn.disabled = !last.vc.applies;
   vcBtn.title = last.vc.applies ? 'Virtual condition: the hole wall against the VC pin (MMC) or boundary (LMC)' : last.vc.note;
   document.getElementById('vc-rfs-note').hidden = last.vc.applies;
@@ -217,11 +217,12 @@ const viewRow = document.getElementById('view-row');
 viewRow.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.mode) { if (!b.disabled) setVcView(b.dataset.mode === 'vc' ? !(isPhone() && last.vcShown) : false); return; }
   if (b.id === 'proj-btn') viewer.setProjection(viewer.view.ortho ? 'persp' : 'ortho');
   else viewer.setView(b.dataset.view);
 });
 const syncViewRow = ({ view, ortho }) => {
-  for (const b of viewRow.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === view));
+  for (const b of viewRow.querySelectorAll('button[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === view));
   const pb = document.getElementById('proj-btn');
   pb.setAttribute('aria-pressed', String(ortho));
   pb.textContent = ortho ? 'Ortho' : 'Persp';
@@ -230,7 +231,7 @@ viewer.onView(syncViewRow);
 syncViewRow(viewer.view);
 
 // ---- Position / Virtual condition toggle (display only; RFS: disabled) ----
-document.getElementById('mode-row').addEventListener('click', (e) => { const b = e.target.closest('button[data-mode]'); if (b && !b.disabled) setVcView(b.dataset.mode === 'vc'); });
+// (the two buttons sit at the end of the view row; on phones only "VC" shows and toggles)
 function setVcView(on) { state.vcView = !!on; refresh(); }
 
 // URL params for lessons: ?view=top|front|side|3d &tiltlock=1 &lock=1

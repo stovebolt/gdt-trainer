@@ -55,7 +55,7 @@ const SNAP_MS = 420;
 
 // The view row and the Position / Virtual condition toggle below it act as one top overlay.
 function topBarRect() {
-  const rs = ['view-bar', 'mode-bar'].map((id) => document.getElementById(id)).filter((e) => e && e.offsetWidth).map((e) => e.getBoundingClientRect());
+  const rs = ['view-bar'].map((id) => document.getElementById(id)).filter((e) => e && e.offsetWidth).map((e) => e.getBoundingClientRect());
   if (!rs.length) return null;
   return { left: Math.min(...rs.map((r) => r.left)), right: Math.max(...rs.map((r) => r.right)), top: Math.min(...rs.map((r) => r.top)), bottom: Math.max(...rs.map((r) => r.bottom)), width: 1, height: 1 };
 }

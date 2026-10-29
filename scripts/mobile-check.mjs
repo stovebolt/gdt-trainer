@@ -307,7 +307,7 @@ for (const name of DEVICES) {
       const shown = (e) => e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && r(e).width > 0;
       const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
       const cv = r(window.gdt._debug.canvas);
-      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #hud-br, #view-row, #mode-row, #vc-rfs-note, .lock-badge')].filter(shown);
+      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #hud-br, #view-row, #vc-rfs-note, .lock-badge')].filter(shown);
       const name = (e) => e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0];
       const issues = [];
       for (const e of items) { const b = r(e); if (b.left < cv.left - 0.5 || b.right > cv.right + 0.5 || b.top < cv.top - 0.5 || b.bottom > cv.bottom + 0.5) issues.push(name(e) + ' off-view'); }
@@ -317,7 +317,7 @@ for (const name of DEVICES) {
       for (const k of ['top', 'bottom']) {
         const v = hv[k].position.clone().project(cam); const x = cv.left + (v.x + 1) / 2 * cv.width, y = cv.top + (1 - v.y) / 2 * cv.height;
         if (x < cv.left || x > cv.right || y < cv.top || y > cv.bottom) issues.push(k + ' handle off-view');
-        for (const id of ['view-row', 'mode-row', 'status-badge', 'hud-br', 'mag-badge']) { const b = document.getElementById(id); if (shown(b)) { const q = r(b); if (x > q.left - 6 && x < q.right + 6 && y > q.top - 6 && y < q.bottom + 6) issues.push(`${k} handle under #${id}`); } }
+        for (const id of ['view-row', 'status-badge', 'hud-br', 'mag-badge']) { const b = document.getElementById(id); if (shown(b)) { const q = r(b); if (x > q.left - 6 && x < q.right + 6 && y > q.top - 6 && y < q.bottom + 6) issues.push(`${k} handle under #${id}`); } }
       }
       const fonts = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label')].filter(shown).map((e) => parseFloat(getComputedStyle(e).fontSize));
       return { issues, minFont: Math.min(...fonts) };
@@ -524,18 +524,18 @@ for (const name of DEVICES) {
         await page.evaluate(() => { window.gdt.setView('3d', { ms: 0 }); }); await home(); await page.waitForTimeout(300);
         const CK = (l, ok, d) => check(l, ok, typeof d === 'string' ? d : JSON.stringify(d)), TAP = tapSel;
         const SHOT = async (n) => { await home(); await page.waitForTimeout(700); const ov = await overlapCheck(); check(`${n}: labels, badges, VC toggle, handles: nothing overlaps, all in view`, ov.issues.length === 0 && ov.minFont >= 10, ov.issues.join(', ')); await page.screenshot({ path: `${OUT}/${sl}-${n}-${TAG}.png` }); };
-        const mb = await page.evaluate(() => { const q = (s) => document.querySelector(s).getBoundingClientRect(); const bs = [...document.querySelectorAll('#mode-row button')].map((b) => b.getBoundingClientRect()); const c = window.gdt._debug.canvas.getBoundingClientRect(); const v = q('#view-row'), m = q('#mode-row'); return { minH: Math.min(...bs.map((b) => b.height)), minW: Math.min(...bs.map((b) => b.width)), inside: m.left >= c.left && m.right <= c.right + 0.5 && m.top >= c.top, clearOfRow: m.top >= v.bottom - 0.5 || m.right <= v.left || m.left >= v.right }; });
-        check('Position / Virtual condition toggle: buttons >= 40px tall on touch, inside the 3D view, clear of the view row', mb.minH >= 40 && mb.minW >= 40 && mb.inside && mb.clearOfRow, JSON.stringify(mb));
-        const VC = () => page.evaluate(() => { const r = window.gdt.result(), e = (id) => document.getElementById(id); const btn = document.querySelector('#mode-row [data-mode="vc"]'); const lab = document.querySelector('.vc-label'); const zl = [...document.querySelectorAll('.zone-label')].find((x) => !x.classList.contains('vc-label'));
+        const mb = await page.evaluate(() => { const q = (s) => document.querySelector(s).getBoundingClientRect(); const bs = [...document.querySelectorAll('#view-row button')].filter((b) => b.offsetWidth).map((b) => b.getBoundingClientRect()); const c = window.gdt._debug.canvas.getBoundingClientRect(); const v = q('#view-row'); return { n: bs.length, minH: Math.min(...bs.map((b) => b.height)), minW: Math.min(...bs.map((b) => b.width)), inside: v.left >= c.left && v.right <= c.right + 0.5 && v.top >= c.top, clearOfRow: true }; });
+        check('Position / Virtual condition toggle in the view row (phones: one VC toggle): every button >= 40px, row inside the 3D view', mb.minH >= 40 && mb.minW >= 40 && mb.inside, JSON.stringify(mb));
+        const VC = () => page.evaluate(() => { const r = window.gdt.result(), e = (id) => document.getElementById(id); const btn = document.querySelector('#view-row [data-mode="vc"]'); const lab = document.querySelector('.vc-label'); const zl = [...document.querySelectorAll('.zone-label')].find((x) => !x.classList.contains('vc-label'));
           return { verdict: r.verdict, shown: r.vcShown, applies: r.vc.applies, inside: r.vc.inside, lockR: r.vc.lockRadius, kind: r.vc.kind, vc: r.vc.vc, cmin: r.vc.clearance?.min, clear: e('vc-clear').innerText, clearCls: e('vc-clear').className, disabled: btn.disabled, pressed: btn.getAttribute('aria-pressed'), note: e('vc-rfs-note').hidden ? '' : e('vc-rfs-note').innerText, label: lab ? lab.innerText.replace(/\s+/g, ' ') : '', zoneLabel: !!zl, mag: e('mag-badge').innerText, tb: r.top.r, bb: r.bottom.r, zone: r.zone }; });
         const vcReset = () => page.evaluate(() => { const g = window.gdt; g.setLock(false); g.setTiltLock(false); g.setDatums({ A: true, B: true, C: true }); g.setStated(0.25); g.setModifier('RFS'); g.setSize(10.1); g.setVcView(false); g.applyPreset('centered'); });
         await vcReset(); await page.waitForTimeout(200);
         let v = await VC();
-        CK('VC toggle at RFS: "Virtual condition" disabled, note "Virtual condition applies at MMC or LMC.", Position view stays', v.disabled && v.note === 'Virtual condition applies at MMC or LMC.' && !v.shown && v.zoneLabel && v.pressed === 'false', v);
-        await page.locator('#mode-row [data-mode="vc"]').click({ force: true }).catch(() => {}); await page.waitForTimeout(150); v = await VC();
+        CK('VC toggle at RFS: "Virtual condition" disabled, note "Virtual condition applies at MMC or LMC.", Position view stays', v.disabled && v.note === 'Virtual condition applies at MMC or LMC.' && v.clear === v.note && !v.shown && v.zoneLabel && v.pressed === 'false', v);
+        await page.locator('#view-row [data-mode="vc"]').click({ force: true }).catch(() => {}); await page.waitForTimeout(150); v = await VC();
         CK('tapping the disabled VC button at RFS does nothing', !v.shown && v.zoneLabel, v);
         await page.evaluate(() => window.gdt.setModifier('MMC')); await page.waitForTimeout(100);
-        await TAP('#mode-row [data-mode="vc"]'); await page.waitForTimeout(400); v = await VC();
+        await TAP('#view-row [data-mode="vc"]'); await page.waitForTimeout(400); v = await VC();
         CK('MMC: Virtual condition on: red VC pin ⌀9.75 drawn (label), zone label gone, note hidden, badge says VC true size', v.shown && v.pressed === 'true' && v.kind === 'pin' && v.vc === 9.75 && /VC pin ⌀9\.75 \(MMC\)/.test(v.label) && !v.zoneLabel && v.note === '' && /VC true size/.test(v.mag), v);
         const sizes = [];
         for (const s of [10, 10.1, 10.2]) { await page.evaluate((s) => window.gdt.setSize(s), s); await page.waitForTimeout(80); const x = await VC(); sizes.push([s, x.vc, x.label.match(/⌀[\d.]+/)?.[0]]); }
@@ -569,7 +569,7 @@ for (const name of DEVICES) {
         await page.evaluate(() => window.gdt.setModifier('RFS')); await page.waitForTimeout(150); v = await VC();
         CK('switching to RFS while in VC view: back to Position view, VC disabled, note shown', !v.shown && v.disabled && v.zoneLabel && v.note !== '', v);
         if (SHOT) await SHOT('vc-rfs-disabled');
-        await TAP('#mode-row [data-mode="position"]'); await vcReset(); await page.waitForTimeout(200);
+        await vcReset(); await page.waitForTimeout(200);
       }
       // ---- Explain this setup (collapsed on phones, tap to expand; Sally's copy; advice never changes IN/OUT) ----
       {

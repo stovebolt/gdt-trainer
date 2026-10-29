@@ -223,7 +223,7 @@ button:hover { background: #e2e8f0; }
 .preset-note { margin-top: 4px; color: #92400e; font-weight: 600; }
 @media (max-width: 700px), (max-height: 500px) {
   .view-row { align-self: flex-end; }
-  .view-row button { min-height: 40px; min-width: 40px; padding: 0 6px; font-size: 12px; }
+  .view-row button { min-height: 40px; min-width: 40px; padding: 0 4px; font-size: 12px; }
 }
 @media (pointer: coarse) {
   .view-row button { min-height: 40px; min-width: 40px; }
@@ -237,7 +237,7 @@ button:hover { background: #e2e8f0; }
 @media (max-width: 700px), (max-height: 500px) {
   .view-bar { align-self: stretch; flex-direction: row-reverse; justify-content: space-between; flex-wrap: nowrap; }
   .view-bar .view-row { align-self: auto; }
-  .lock-badge { font-size: 10px; padding: 1px 5px; }
+  .lock-badge { font-size: 10px; padding: 1px 5px; white-space: normal; }
 }
 
 /* ---- Datum reference suppression (preview: datums) ---- */

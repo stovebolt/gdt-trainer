@@ -25,6 +25,7 @@ export function explainFor(datums, modifier = 'RFS') {
     controls: fill(c.controls, p),
     free: fill(c.free, p),
     note: fill(c.note, p),
+    displayNote: c.displayNote ?? '',
     better: c.better.map(line),
     mc: [...(MC_COPY[modifier] ?? MC_COPY.RFS), MC_ZERO].map(line),
   };
@@ -45,6 +46,7 @@ export function explainHTML(ex, modifier = 'RFS') {
     row(UI_TEXT.controls, ex.controls),
     row(UI_TEXT.free, ex.free),
     ex.note ? `<div class="ex-note">${esc(ex.note)}</div>` : '',
+    ex.displayNote ? `<div class="ex-display-note">${esc(ex.displayNote)}</div>` : '',
     `<div class="ex-sec"><b class="ex-h">${UI_TEXT.better}</b>${ex.better.map(lineHTML).join('')}</div>`,
     `<div class="ex-sec"><b class="ex-h">${UI_TEXT.mc}: ${modifier}</b>${ex.mc.map(lineHTML).join('')}</div>`,
     `<div class="ex-foot">${UI_TEXT.adviceOnly}</div>`,

@@ -89,3 +89,12 @@ test('basic-dimension rule shows exactly where B and/or C is dropped (location f
   for (const k of ['AB', 'AC', 'A', 'BorC']) assert.ok(DATUM_COPY[k].better.some((l) => l.type === 'rule' && l.text === t), k);
   for (const k of ['ABC', 'BC', 'none']) assert.ok(!DATUM_COPY[k].better.some((l) => l.text === t), k);
 });
+
+test('slide-limit display note: untagged, exactly where B and/or C is dropped', () => {
+  const t = "The slide limit here is only the lesson's drag range. It is not a tolerance.";
+  for (const [d, want] of [['AB', 1], ['AC', 1], ['A', 1], ['B', 1], ['C', 1], ['ABC', 0], ['BC', 0], ['', 0]]) {
+    const h = explainHTML(explainFor({ A: d.includes('A'), B: d.includes('B'), C: d.includes('C') }));
+    assert.equal(h.includes(`<div class="ex-display-note">${t.replace("'", "'")}</div>`), !!want, d);
+  }
+  for (const c of Object.values(DATUM_COPY)) assert.ok(!c.better.some((l) => l.text === t));
+});

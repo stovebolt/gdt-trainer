@@ -10,6 +10,8 @@
 // "{P}" in the B-only / C-only entry stands for the one kept datum letter (B or C).
 
 export const STANDARD = 'ASME Y14.5-2018';
+// Display note (Sally, 2026-10-29): untagged trainer note on every entry where B and/or C is dropped.
+export const SLIDE_NOTE = "The slide limit here is only the lesson's drag range. It is not a tolerance.";
 export const TAGS = { rule: 'Rule', practice: 'Practice' };
 export const CITATION_TOPICS = ['datum reference frame', 'order of precedence', 'basic dimensions', 'material condition modifiers'];
 
@@ -30,6 +32,7 @@ export const DATUM_COPY = {
     controls: 'Axis square to A, X location.',
     free: 'Sliding in Y.',
     note: '',
+    displayNote: SLIDE_NOTE,
     better: [R('A direction with no datum has nothing locating it.', 'datum reference frame'), R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'), P('Add C unless Y is free on purpose.')],
   },
   AC: {
@@ -37,6 +40,7 @@ export const DATUM_COPY = {
     controls: 'Axis square to A, Y location.',
     free: 'Sliding in X.',
     note: '',
+    displayNote: SLIDE_NOTE,
     better: [R('A direction with no datum has nothing locating it.', 'datum reference frame'), R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'), P('Add B unless X is free on purpose.')],
   },
   A: {
@@ -44,6 +48,7 @@ export const DATUM_COPY = {
     controls: 'Axis direction only.',
     free: 'X and Y.',
     note: '',
+    displayNote: SLIDE_NOTE,
     better: [
       R('With no location datums, the basic dimensions locate nothing.', 'basic dimensions'),
       R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'),
@@ -65,6 +70,7 @@ export const DATUM_COPY = {
     controls: 'Location across {P}, axis parallel to {P}.',
     free: "Sliding along {P} and tilting about {P}'s normal.",
     note: 'Simplified, this lesson keeps the zone vertical.',
+    displayNote: SLIDE_NOTE,
     better: [R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'), P('Add A first.')],
   },
   none: {

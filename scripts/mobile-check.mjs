@@ -599,7 +599,7 @@ for (const name of DEVICES) {
         for (const [tag, d, cfgRe, lines] of cases) {
           await page.evaluate((d) => window.gdt.setDatums(d), d); await page.waitForTimeout(200);
           x = await X();
-          const ok = cfgRe.test(x.cfg) && lines.every((re) => re.test(x.text)) && !x.overflow && x.open && x.bodyShown && x.practiceCited === 0 && x.tags.includes('ex-practice:') && x.text.includes(BASIC) === ['a-only', 'b-only', 'c-only', 'ab', 'ac'].includes(tag);
+          const ok = cfgRe.test(x.cfg) && lines.every((re) => re.test(x.text)) && !x.overflow && x.open && x.bodyShown && x.practiceCited === 0 && x.tags.includes('ex-practice:') && x.text.includes(BASIC) === ['a-only', 'b-only', 'c-only', 'ab', 'ac'].includes(tag) && x.text.includes("The slide limit here is only the lesson's drag range. It is not a tolerance.") === ['a-only', 'b-only', 'c-only', 'ab', 'ac'].includes(tag);
           check(`explainer ${tag}: Sally's text verbatim, [Rule]/[Practice] tags, citations on rules only, no horizontal overflow`, ok, JSON.stringify({ cfg: x.cfg, tags: x.tags, overflow: x.overflow, text: x.text.slice(0, 200) }));
           if (['a-only', 'b-only', 'ac'].includes(tag)) {
             await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.waitForTimeout(250);

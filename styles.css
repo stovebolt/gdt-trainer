@@ -286,6 +286,7 @@ button:hover { background: #e2e8f0; }
 .ex-sec { margin-top: 6px; }
 .ex-sec > .ex-h { display: block; margin-bottom: 2px; }
 .ex-line { margin: 2px 0; }
+.ex-display-note { margin: 4px 0; padding: 3px 6px; color: #475569; font-style: italic; border-left: 3px dotted #94a3b8; }
 .ex-note { margin: 4px 0; padding: 3px 6px; background: #f1f5f9; border-left: 3px solid #64748b; font-weight: 600; }
 .ex-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; font: 800 10.5px/1.5 system-ui; text-transform: uppercase; letter-spacing: .02em; vertical-align: 1px; }
 .ex-rule { background: var(--ink); color: #fff; }

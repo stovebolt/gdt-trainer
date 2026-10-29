@@ -11,6 +11,7 @@ import { toVisualXY, visualZoneRadius } from '../exaggeration.js';
 import { viewPose, effectiveDistance } from '../views.js';
 import { notJudged } from '../tolerance.js';
 import { reframePlan } from '../framing.js';
+import { vcWallRadius } from '../vc.js';
 import { COLORS, fatLine, circlePoints, arrowHead, label, disposeObject, setLineResolution } from './primitives.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z-up, matching the drawing frame
@@ -51,6 +52,13 @@ export const VIEW_TARGET = Object.freeze([TP.x, TP.y, H / 2]);
 export const VIEW_HALF = { desktop: 26, phone: 21 };
 const VIEW_DIST = 120; // camera distance for ortho views (only affects clipping)
 const SNAP_MS = 420;
+
+// The view row and the Position / Virtual condition toggle below it act as one top overlay.
+function topBarRect() {
+  const rs = ['view-bar', 'mode-bar'].map((id) => document.getElementById(id)).filter((e) => e && e.offsetWidth).map((e) => e.getBoundingClientRect());
+  if (!rs.length) return null;
+  return { left: Math.min(...rs.map((r) => r.left)), right: Math.max(...rs.map((r) => r.right)), top: Math.min(...rs.map((r) => r.top)), bottom: Math.max(...rs.map((r) => r.bottom)), width: 1, height: 1 };
+}
 
 export function createViewer(container) {
   let keyPts = [], reframeAt = 0, reframeTries = 0, pointerDown = false; // auto-reframe state (see reframe())
@@ -165,7 +173,7 @@ export function createViewer(container) {
     if (!isPhone()) return t;
     const cr = renderer.domElement.getBoundingClientRect();
     const rb = (id) => document.getElementById(id)?.getBoundingClientRect();
-    const row = rb('view-bar'), hud = rb('hud-br'), mag = rb('mag-badge');
+    const row = topBarRect(), hud = rb('hud-br'), mag = rb('mag-badge');
     if (!row || !cr.height) return t;
     const freeTop = row.bottom - cr.top;
     const freeBot = Math.min(...[mag].filter((r) => r && r.height).map((r) => r.top - cr.top), cr.height); void hud;
@@ -223,13 +231,16 @@ export function createViewer(container) {
     const vb = toVisualXY(TP, state.bottom.dx, state.bottom.dy, M);
     const vt = toVisualXY(TP, state.top.dx, state.top.dy, M);
     for (const child of [...dynamic.children]) disposeObject(child);
-    dynamic.add(buildPlate(vb, vt, state.xray));
+    const vc = result.vcShown ? result.vc : null; // Virtual condition view (MMC / LMC only)
+    const wallR = vc ? Math.max(0.5, vcWallRadius({ vc: vc.vc, kind: vc.kind, lockRadius: vc.lockRadius, m: M })) : HOLE_R;
+    dynamic.add(buildPlate(vb, vt, state.xray, wallR));
     const na = notJudged(result.verdict); // neutral gray: position not judged (size rejected / no datums)
     const f = result.freedom;
     const zc = toVisualXY(TP, result.zone.dx, result.zone.dy, M); // zone centre: slid along the freed axes
     const R = visualZoneRadius(result.tolerance, M);
-    if (f.slides) dynamic.add(buildFreedom(f, zc, R));
-    dynamic.add(buildZone(R, result.inTolerance, M, result.tolerance, na, zc, f.floats));
+    if (f.slides) dynamic.add(buildFreedom(f, zc, vc ? vc.vc / 2 : R));
+    if (vc) dynamic.add(buildVC(vc, zc, M, result.verdict, f.floats, wallR, vb, vt));
+    else dynamic.add(buildZone(R, result.inTolerance, M, result.tolerance, na, zc, f.floats));
     fcfLabel.element.innerHTML = fcfDrawingHTML(state, result);
     dynamic.add(buildAxis(vb, vt, result, zc));
     const leader = buildLeader(vt);
@@ -255,7 +266,7 @@ export function createViewer(container) {
     const phone = isPhone();
     let top = 8, bot = h - 8;
     { // the badge + view row above, the exaggeration badge below (phones and tablets)
-      const sb = rb('status-badge'), vr = rb('view-bar'), mg = rb('mag-badge');
+      const sb = rb('status-badge'), vr = (() => { const r = topBarRect(); return r && { t: r.top - cr.top, b: r.bottom - cr.top }; })(), mg = rb('mag-badge');
       top = Math.max(top, sb?.b ?? 0, vr?.b ?? 0) + (phone ? 40 : 70); // + room for the TOP tag above its handle (tablets: tags reach further left under the badges)
       if (mg && (phone || mg.t > h * 0.5)) bot = Math.min(bot, mg.t - 36); // + room for the BOTTOM tag (only when the badge sits low)
     }
@@ -302,7 +313,7 @@ export function createViewer(container) {
       const b = el.getBoundingClientRect();
       return { l: b.left - cr.left, r: b.right - cr.left, t: b.top - cr.top, b: b.bottom - cr.top };
     };
-    const sb = box('status-badge'), vr = box('view-bar');
+    const sb = box('status-badge'), vr = (() => { const r = topBarRect(); return r && { l: r.left - cr.left, r: r.right - cr.left, t: r.top - cr.top, b: r.bottom - cr.top }; })();
     const badge = sb && vr ? { l: Math.min(sb.l, vr.l), r: Math.max(sb.r, vr.r), t: Math.min(sb.t, vr.t), b: Math.max(sb.b, vr.b) } : sb || vr; // labels drop below the badge + view row
     const mag = box('mag-badge'); // labels lift above it
     const chip = box('hud-br'); // phone-only "Show drawing" button + FCF chip (bottom-right)
@@ -372,7 +383,7 @@ export function createViewer(container) {
     }
     // Ortho views can bring the zone and axis anchors together on screen (top
     // view: the axis is a point inside the zone); stack the later label below.
-    if (camera === ortho && placed.length > 1) {
+    if ((camera === ortho || dynamic.getObjectByName('vc')) && placed.length > 1) { // VC label is wider than the zone label: stack in 3D too
       placed.sort((p, q) => p.t - q.t);
       for (let i = 1; i < placed.length; i++) {
         const p = placed[i - 1], q = placed[i];
@@ -589,7 +600,7 @@ function fcfDrawingHTML(state, result) {
 // ---------------------------------------------------------------------------
 
 /** Plate with a (possibly tilted) through hole whose ends sit at vb / vt. */
-function buildPlate(vb, vt, xray) {
+function buildPlate(vb, vt, xray, holeR = HOLE_R) {
   const g = new THREE.Group();
   g.name = 'plate';
   const mat = new THREE.MeshStandardMaterial({
@@ -614,7 +625,7 @@ function buildPlate(vb, vt, xray) {
     s.lineTo(0, W);
     s.closePath();
     const hole = new THREE.Path();
-    hole.absarc(c.x, c.y, HOLE_R, 0, Math.PI * 2, true);
+    hole.absarc(c.x, c.y, holeR, 0, Math.PI * 2, true);
     s.holes.push(hole);
     const geo = new THREE.ShapeGeometry(s, 48);
     geo.translate(0, 0, z);
@@ -636,7 +647,7 @@ function buildPlate(vb, vt, xray) {
   g.add(new THREE.Mesh(sides, mat));
 
   // Bore: open cylinder sheared so its ends sit on vb (z=0) and vt (z=H)
-  const bore = new THREE.CylinderGeometry(HOLE_R, HOLE_R, H, 64, 1, true);
+  const bore = new THREE.CylinderGeometry(holeR, holeR, H, 64, 1, true);
   bore.rotateX(Math.PI / 2);
   bore.translate(0, 0, H / 2);
   const p = bore.attributes.position;
@@ -654,7 +665,7 @@ function buildPlate(vb, vt, xray) {
   const bot = corners.map(([x, y]) => [x, y, 0]);
   g.add(fatLine([...top, top[0]], ol), fatLine([...bot, bot[0]], ol));
   for (const [x, y] of corners) g.add(fatLine([[x, y, 0], [x, y, H]], ol));
-  g.add(fatLine(circlePoints(vt.x, vt.y, H, HOLE_R), ol));
+  g.add(fatLine(circlePoints(vt.x, vt.y, H, holeR), ol));
   g.add(fatLine(circlePoints(vb.x, vb.y, 0, HOLE_R), { ...ol, width: 2 }));
   return g;
 }
@@ -729,6 +740,50 @@ function buildZone(R, inTol, M, allowed, na = false, zc = { x: TP.x, y: TP.y }, 
     leader,
     near: { anchor, px: CALLOUT_PX.zone, center: [0, 0.5] }, // left edge at leader end
     far: { anchor: new THREE.Vector3(zc.x, zc.y - R, 0), at: new THREE.Vector3(zc.x + 2, zc.y - Math.max(R, 6) - 16, 0), center: [0.5, 0] }, // hangs below
+  };
+  g.add(leader, zl);
+  return g;
+}
+
+/**
+ * Virtual condition object (red, perfect cylinder, full depth, square to A, centred on the true
+ * position or the zone's best-fit centre): MMC pin ⌀(MMC − stated), LMC boundary ⌀(LMC + stated)
+ * with a faint ghost of the resultant ⌀(MMC − stated − (LMC − MMC)). Drawn at true size; the hole
+ * wall is drawn VC/2 ± gap·M so wall and VC touch exactly when the math says contact.
+ */
+function buildVC(vc, zc, M, verdict, floats, wallR, vb, vt) {
+  const color = COLORS.out;
+  const g = new THREE.Group();
+  g.name = 'vc';
+  const Rv = vc.vc / 2;
+  const geo = new THREE.CylinderGeometry(Rv, Rv, H, 72, 1, vc.kind === 'boundary');
+  geo.rotateX(Math.PI / 2);
+  geo.translate(zc.x, zc.y, H / 2);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: vc.kind === 'pin' ? 0.42 : 0.16, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+  mesh.renderOrder = 5;
+  g.add(mesh);
+  const o = { color, width: 3.5, onTop: true };
+  g.add(fatLine(circlePoints(zc.x, zc.y, 0, Rv), o), fatLine(circlePoints(zc.x, zc.y, H, Rv), o));
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 2 + Math.PI / 4;
+    g.add(fatLine([[zc.x + Rv * Math.cos(a), zc.y + Rv * Math.sin(a), 0], [zc.x + Rv * Math.cos(a), zc.y + Rv * Math.sin(a), H]], { color, width: 1.5, onTop: true, opacity: 0.8 }));
+  }
+  if (vc.kind === 'boundary' && vc.resultant > 0) { // faint ghost: LMC resultant condition (true size)
+    const Rr = vc.resultant / 2, go = { color, width: 1.2, onTop: true, opacity: 0.35, dashed: true, dashSize: 0.8, gapSize: 0.6 };
+    g.add(fatLine(circlePoints(zc.x, zc.y, 0, Rr), go), fatLine(circlePoints(zc.x, zc.y, H, Rr), go));
+  }
+  // hole wall rims (the bore follows the axis), coloured by the verdict so both views agree
+  const wc = notJudged(verdict) ? COLORS.na : verdict === 'IN' ? COLORS.in : COLORS.out;
+  const wo = { color: wc, width: 2.5, onTop: true };
+  g.add(fatLine(circlePoints(vb.x, vb.y, 0, wallR), wo), fatLine(circlePoints(vt.x, vt.y, H, wallR), wo));
+  const anchor = new THREE.Vector3(zc.x + Rv, zc.y, H);
+  const leader = fatLine([anchor.toArray(), anchor.toArray()], { color, width: 2, onTop: true });
+  const what = vc.kind === 'pin' ? `VC pin ⌀${fmtLimit(vc.vc)} (MMC)<br>wall may not cross it` : `VC boundary ⌀${fmtLimit(vc.vc)} (LMC)<br>hole stays inside`;
+  const zl = label(`${what}${floats ? ' · floats free' : ''}`, `zone-label vc-label ${notJudged(verdict) ? 'na' : verdict === 'IN' ? 'pass' : 'fail'}`, anchor.toArray());
+  zl.userData.callout = {
+    leader,
+    near: { anchor, px: [CALLOUT_PX.zone[0], CALLOUT_PX.zone[1] - 30], center: [0, 0.5] }, // sits higher: the VC is wider than the zone
+    far: { anchor: new THREE.Vector3(zc.x, zc.y - Rv, 0), at: new THREE.Vector3(zc.x + 2, zc.y - Math.max(Rv, 6) - 16, 0), center: [0.5, 0] },
   };
   g.add(leader, zl);
   return g;

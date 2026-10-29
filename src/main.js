@@ -266,6 +266,6 @@ window.gdt = {
   setProjection: (p) => viewer.setProjection(p),
   view: () => viewer.view,
   dragAxis: (patch) => setAxis(patch, { user: true }), // same path as a handle drag / tilt control
-  _debug: { handles: viewer.handles, get camera() { return viewer.camera; }, canvas: viewer.domElement, controls: viewer.controls },
+  _debug: { handles: viewer.handles, get camera() { return viewer.camera; }, canvas: viewer.domElement, controls: viewer.controls, scene: viewer.scene },
   ready: true,
 };

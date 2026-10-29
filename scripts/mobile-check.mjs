@@ -538,9 +538,9 @@ for (const name of DEVICES) {
         await TAP('#view-row [data-mode="vc"]'); await page.waitForTimeout(400); v = await VC();
         CK('MMC: Virtual condition on: red VC pin ⌀9.75 drawn (label), zone label gone, note hidden, badge says VC true size', v.shown && v.pressed === 'true' && v.kind === 'pin' && v.vc === 9.75 && /VC pin ⌀9\.75 \(MMC\)/.test(v.label) && !v.zoneLabel && v.note === '' && /VC true size/.test(v.mag), v);
         const sizes = [];
-        for (const s of [10, 10.1, 10.2]) { await page.evaluate((s) => window.gdt.setSize(s), s); await page.waitForTimeout(80); const x = await VC(); sizes.push([s, x.vc, x.label.match(/⌀[\d.]+/)?.[0]]); }
+        for (const s of [10, 10.1, 10.2]) { await page.evaluate((s) => window.gdt.setSize(s), s); await page.waitForFunction(() => /⌀9\.75/.test(document.querySelector('.vc-label')?.textContent ?? ''), null, { timeout: 3000 }).catch(() => {}); const x = await VC(); sizes.push([s, x.vc, x.label.match(/⌀[\d.]+/)?.[0]]); }
         CK('MMC: VC size follows stated + modifier only (⌀9.75 at every hole size)', sizes.every((x) => x[1] === 9.75 && x[2] === '⌀9.75'), sizes);
-        await page.evaluate(() => window.gdt.setStated(0.4)); await page.waitForTimeout(80); v = await VC();
+        await page.evaluate(() => window.gdt.setStated(0.4)); await page.waitForFunction(() => /⌀9\.6/.test(document.querySelector('.vc-label')?.textContent ?? ''), null, { timeout: 3000 }).catch(() => {}); v = await VC();
         CK('MMC: stated ⌀0.4 -> VC ⌀9.6', v.vc === 9.6 && /⌀9\.6/.test(v.label), v.label);
         await page.evaluate(() => { window.gdt.setStated(0.25); window.gdt.setSize(10.1); }); await page.waitForTimeout(80);
         // equivalence sweep: VC view vs bonus-zone view, both modifiers, sizes, offsets (incl. exact boundary)

@@ -40,15 +40,15 @@ test('every copy line has a valid type; citations are topic names only; clause n
 test("Sally's text is used verbatim (spot checks)", () => {
   assert.equal(DATUM_COPY.ABC.controls, 'X and Y location, axis square to A.');
   assert.equal(DATUM_COPY.AB.free, 'Sliding in Y.');
-  assert.equal(DATUM_COPY.AC.better[1].text, 'Add B unless X is free on purpose.');
-  assert.equal(DATUM_COPY.A.better[1].text, 'Use perpendicularity to A: it says what is controlled, while position implies a location that is not.');
+  assert.equal(DATUM_COPY.AC.better.at(-1).text, 'Add B unless X is free on purpose.');
+  assert.equal(DATUM_COPY.A.better.at(-1).text, 'Use perpendicularity to A: it says what is controlled, while position implies a location that is not.');
   assert.equal(DATUM_COPY.BC.free, 'Z (not visible on a through hole).');
   assert.equal(DATUM_COPY.none.better[0].text, 'Reference at least A, and B and C to locate.');
   const b = explainFor({ A: false, B: true, C: false }), c = explainFor({ A: false, B: false, C: true });
   assert.equal(b.free, "Sliding along B and tilting about B's normal.");
   assert.equal(c.free, "Sliding along C and tilting about C's normal.");
   assert.equal(b.note, 'Simplified, this lesson keeps the zone vertical.');
-  assert.equal(c.better[0].text, 'Add A first.');
+  assert.equal(c.better.at(-1).text, 'Add A first.');
   assert.equal(explainFor({}, 'MMC').mc[0].text, 'Bonus = size minus smallest hole.');
   assert.equal(explainFor({}, 'LMC').mc[0].text, 'Bonus = largest hole minus size.');
   assert.equal(explainFor({}, 'RFS').mc.at(-1).text, 'Zero tolerance only at MMC/LMC.');
@@ -82,4 +82,10 @@ test('markup includes Controls / Free / Better way and the advice-only footer', 
 
 test('entries 1 (A|B|C) and 5 (B|C) cite order of precedence on their Rule lines', () => {
   for (const k of ['ABC', 'BC']) assert.ok(DATUM_COPY[k].better.some((l) => l.type === 'rule' && l.citation.includes('order of precedence')), k);
+});
+
+test('basic-dimension rule shows exactly where B and/or C is dropped (location freed)', () => {
+  const t = 'Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.';
+  for (const k of ['AB', 'AC', 'A', 'BorC']) assert.ok(DATUM_COPY[k].better.some((l) => l.type === 'rule' && l.text === t), k);
+  for (const k of ['ABC', 'BC', 'none']) assert.ok(!DATUM_COPY[k].better.some((l) => l.text === t), k);
 });

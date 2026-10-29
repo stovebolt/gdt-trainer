@@ -595,12 +595,13 @@ for (const name of DEVICES) {
           ['bc', { A: false, B: true, C: true }, /B \| C \(A dropped\)/, [/axis held parallel to B and C \(vertical\)\./, /Z \(not visible on a through hole\)\./, /List A first: the hole is square to A and A gives a stable seat\./]],
           ['none', { A: false, B: false, C: false }, /No datums/, [/Position is undefined: nothing to measure the basic dimensions from\. Gray, no IN\/OUT\./, /Reference at least A, and B and C to locate\./]],
         ];
+        const BASIC = 'Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.';
         for (const [tag, d, cfgRe, lines] of cases) {
           await page.evaluate((d) => window.gdt.setDatums(d), d); await page.waitForTimeout(200);
           x = await X();
-          const ok = cfgRe.test(x.cfg) && lines.every((re) => re.test(x.text)) && !x.overflow && x.open && x.bodyShown && x.practiceCited === 0 && x.tags.includes('ex-practice:');
+          const ok = cfgRe.test(x.cfg) && lines.every((re) => re.test(x.text)) && !x.overflow && x.open && x.bodyShown && x.practiceCited === 0 && x.tags.includes('ex-practice:') && x.text.includes(BASIC) === ['a-only', 'b-only', 'c-only', 'ab', 'ac'].includes(tag);
           check(`explainer ${tag}: Sally's text verbatim, [Rule]/[Practice] tags, citations on rules only, no horizontal overflow`, ok, JSON.stringify({ cfg: x.cfg, tags: x.tags, overflow: x.overflow, text: x.text.slice(0, 200) }));
-          if (['a-only', 'b-only'].includes(tag)) {
+          if (['a-only', 'b-only', 'ac'].includes(tag)) {
             await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.waitForTimeout(250);
             await page.screenshot({ path: `${OUT}/${sl}-explain-${tag}-open-${TAG}.png` });
           }

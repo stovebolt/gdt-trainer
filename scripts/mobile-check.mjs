@@ -595,7 +595,7 @@ for (const name of DEVICES) {
           ['bc', { A: false, B: true, C: true }, /B \| C \(A dropped\)/, [/axis held parallel to B and C \(vertical\)\./, /Z \(not visible on a through hole\)\./, /List A first: the hole is square to A and A gives a stable seat\./]],
           ['none', { A: false, B: false, C: false }, /No datums/, [/Position is undefined: nothing to measure the basic dimensions from\. Gray, no IN\/OUT\./, /Reference at least A, and B and C to locate\./]],
         ];
-        const BASIC = 'Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.';
+        const BASIC = 'Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.';
         for (const [tag, d, cfgRe, lines] of cases) {
           await page.evaluate((d) => window.gdt.setDatums(d), d); await page.waitForTimeout(200);
           x = await X();

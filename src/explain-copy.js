@@ -30,14 +30,14 @@ export const DATUM_COPY = {
     controls: 'Axis square to A, X location.',
     free: 'Sliding in Y.',
     note: '',
-    better: [R('A direction with no datum has nothing locating it.', 'datum reference frame'), R('Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.', 'basic dimensions'), P('Add C unless Y is free on purpose.')],
+    better: [R('A direction with no datum has nothing locating it.', 'datum reference frame'), R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'), P('Add C unless Y is free on purpose.')],
   },
   AC: {
     label: 'A | C (B dropped)',
     controls: 'Axis square to A, Y location.',
     free: 'Sliding in X.',
     note: '',
-    better: [R('A direction with no datum has nothing locating it.', 'datum reference frame'), R('Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.', 'basic dimensions'), P('Add B unless X is free on purpose.')],
+    better: [R('A direction with no datum has nothing locating it.', 'datum reference frame'), R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'), P('Add B unless X is free on purpose.')],
   },
   A: {
     label: 'A only (B and C dropped)',
@@ -46,7 +46,7 @@ export const DATUM_COPY = {
     note: '',
     better: [
       R('With no location datums, the basic dimensions locate nothing.', 'basic dimensions'),
-      R('Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.', 'basic dimensions'),
+      R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'),
       P('Use perpendicularity to A: it says what is controlled, while position implies a location that is not.'),
     ],
   },
@@ -65,7 +65,7 @@ export const DATUM_COPY = {
     controls: 'Location across {P}, axis parallel to {P}.',
     free: "Sliding along {P} and tilting about {P}'s normal.",
     note: 'Simplified, this lesson keeps the zone vertical.',
-    better: [R('Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.', 'basic dimensions'), P('Add A first.')],
+    better: [R('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.', 'basic dimensions'), P('Add A first.')],
   },
   none: {
     label: 'No datums',

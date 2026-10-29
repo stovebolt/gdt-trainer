@@ -85,7 +85,7 @@ test('entries 1 (A|B|C) and 5 (B|C) cite order of precedence on their Rule lines
 });
 
 test('basic-dimension rule shows exactly where B and/or C is dropped (location freed)', () => {
-  const t = 'Basic dimensions take no default tolerance. With this datum dropped, the frame no longer locates the hole in that direction; a separate tolerance would be needed.';
+  const t = 'Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.';
   for (const k of ['AB', 'AC', 'A', 'BorC']) assert.ok(DATUM_COPY[k].better.some((l) => l.type === 'rule' && l.text === t), k);
   for (const k of ['ABC', 'BC', 'none']) assert.ok(!DATUM_COPY[k].better.some((l) => l.text === t), k);
 });

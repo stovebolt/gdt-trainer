@@ -80,7 +80,10 @@ export function lowerFit(holes, grid = 401, iters = 200, use = null) {
   }
   const cands = [[vals[k], ths[k]], [f1, x1], [f2, x2], [fTheta(holes, 0, use), 0]];
   cands.sort((p, q) => p[0] - q[0] || p[1] - q[1]); // same order as Python's min over (r, θ) tuples
-  const [r, theta] = cands[0];
+  // θ = 0 wins float-noise ties (≤ 1e-12 mm): a pure-shift fit stays exactly unrotated, so holes
+  // tied at the max deviation read as tied (the naming rule compares within 1e-9)
+  const zero = cands.find((c) => c[1] === 0);
+  const [r, theta] = zero[0] <= cands[0][0] + 1e-12 ? zero : cands[0];
   const [[tx, ty]] = mec(residualPts(holes, theta, use));
   return { r, tx, ty, theta };
 }
@@ -120,22 +123,20 @@ export function evaluate(devs, sizes = [10.1, 10.1, 10.1, 10.1], modifier = 'RFS
     lo: 2 * f.r, loR: f.r, loOk, loHoleR: loR, loHoleOk,
     fit: { tx: f.tx, ty: f.ty, theta: f.theta, deg: (f.theta * 180) / Math.PI }, lowerCentres: q,
     failUpper: HOLE_NAMES.filter((_, i) => !upOk[i]),
-    failLower: loOk ? [] : lowerCulprits(holes, f.r, loR),
+    failLower: loOk ? [] : HOLE_NAMES.filter((_, i) => loR[i] >= f.r - 1e-9), // every hole tied at the max (Sally)
+    outlier: loOk ? null : lowerOutlier(holes),
   };
 }
 
 /**
- * Which hole(s) to name when the lower row fails (readout only; never changes the verdict).
- * At the minimax fit several holes touch the same radius, so "farthest" alone would name all
- * four for one bad hole. Named: a hole whose own lean already needs more than ⌀0.10, or a hole
- * without which the other three would fit. If neither picks anyone, the farthest holes.
+ * "The outlier" (readout only, never "the cause"; never changes the verdict): the one hole
+ * farthest from its basic spacing, i.e. the hole without which the other three fit best.
+ * null when no single hole stands out (ties within 1e-9, e.g. all four leaning the same).
  */
-export function lowerCulprits(holes, r, loR) {
-  const lim = R_LO + EPS / 2;
-  const lean = holes.map(([pb, pt]) => dist(pb, pt) / 2 > lim);
-  const named = holes.map((_, i) => lean[i] || lowerFit(holes, 401, 200, holes.map((__, j) => j !== i)).r <= lim);
-  const out = HOLE_NAMES.filter((_, i) => named[i]);
-  return out.length ? out : HOLE_NAMES.filter((_, i) => loR[i] >= r - 1e-9);
+export function lowerOutlier(holes) {
+  const r = holes.map((_, i) => lowerFit(holes, 401, 200, holes.map((__, j) => j !== i)).r);
+  const m = Math.min(...r), at = r.map((v, i) => (v <= m + 1e-9 ? i : -1)).filter((i) => i >= 0);
+  return at.length === 1 ? HOLE_NAMES[at[0]] : null;
 }
 
 /** Rigid move of the whole pattern about CEN (deg CCW): 4 perpendicular devs. */
@@ -151,15 +152,20 @@ export const perp = (d) => [d[0], d[1], d[0], d[1]];
 export const ZERO = Object.freeze([0, 0, 0, 0]);
 export const oneHole = (dev, k = 0) => BASIC.map((_, i) => (i === k ? [...dev] : [...ZERO]));
 
-/** Spec display rule: 3 decimals, trailing zeros dropped; a failing value rounds AWAY from the limit. */
-export function disp(x, limit = null) {
-  let v = Math.round(x * 1000) / 1000;
-  if (limit !== null && x > limit + EPS && v <= limit) {
-    v = Math.ceil(x * 1000 - 1e-9) / 1000;
-    if (v <= limit) v = limit + 0.001;
-  }
-  const s = Math.abs(v).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-  return (v < 0 && s !== '0' ? '−' : '') + s;
+// Display (Lesson 1 rule, Sally 2026-10-30): at most 3 decimals, trailing zeros dropped.
+//   disp(x)               neutral value (offsets, sizes, fit info): nearest
+//   dispUp(x)             measured value shown on its own: rounded UP (never understated)
+//   disp(x, limit[, pass]) measured value against a limit: rounded UP; a PASSING value (incl. one
+//                         within the 1e-9 slack above the limit) shows at most the limit; a FAILING
+//                         value always shows strictly above the limit. pass defaults to x ≤ limit + EPS/2.
+const GUARD = 1e-6; // display units (= 1e-9 mm): ignores float noise like 0.13000000000000034
+const str = (u) => { const t = (Math.abs(u) / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, ''); return (u < 0 && t !== '0' ? '−' : '') + t; };
+export const dispUp = (x) => str(Math.ceil(x * 1000 - GUARD));
+export function disp(x, limit = null, pass = null) {
+  if (limit === null) return str(Math.round(x * 1000));
+  const ok = pass ?? x <= limit + EPS / 2;
+  const lim = Math.floor(limit * 1000 + GUARD), u = Math.ceil(x * 1000 - GUARD);
+  return str(ok ? Math.min(u, lim) : Math.max(u, lim + 1));
 }
 
 export const VERDICT_TEXT = Object.freeze({

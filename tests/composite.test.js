@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  mec, evaluate, lowerFit, holesFromDev, patternMove, perp, oneHole, ZERO, disp,
+  mec, evaluate, dispUp, lowerFit, holesFromDev, patternMove, perp, oneHole, ZERO, disp,
   BASIC, CEN, R_UP, R_LO, T_LO, PLATE, SIZE_HI,
 } from '../composite/src/composite.js';
 import { PRESETS, EXTRA_PRESETS } from '../composite/src/config.js';
@@ -57,7 +57,9 @@ test('edge cases vs spec, Python and scipy (1e-5)', () => {
     assert.ok(Math.abs(r.lo - c.py_lo) <= 1e-5, `${k} JS lo ${r.lo} vs Python ${c.py_lo}`);
     assert.ok(r.up.every((u, i) => Math.abs(u - c.py_up[i]) <= 1e-9), `${k} JS up = Python`);
     assert.equal(r.code, c.py_code, `${k} JS code = Python`);
-    if (c.py_lo > 1e-6) for (let i = 0; i < 3; i++) assert.ok(Math.abs([r.fit.tx, r.fit.ty, r.fit.deg][i] - c.py_fit[i]) <= 1e-5, `${k} fit[${i}] JS vs Python`);
+    // the drawn placement achieves the reported lower Ø (the optimal placement need not be unique, e.g. EC16)
+    assert.ok(Math.abs(2 * Math.max(...r.loHoleR) - r.lo) <= 1e-9, `${k} placement achieves lo`);
+    if (c.py_lo < 1e-6) for (let i = 0; i < 3; i++) assert.ok(Math.abs([r.fit.tx, r.fit.ty, r.fit.deg][i] - c.py_fit[i]) <= 1e-5, `${k} fit[${i}] JS vs Python`);
   }
   const SPEC_LO = { 'EC9 H1 +0.06 X': 0.06, 'EC10 H1 +0.10 X': 0.10, 'EC11 H1 +0.20 X': 0.20, 'EC12 H1 (0.15,0.20) =0.25': 0.25 };
   for (const [n, v] of Object.entries(SPEC_LO)) {
@@ -119,15 +121,50 @@ test('presets (exact endpoints, spec §6)', () => {
   assert.equal(diag.code, 'FAIL_UPPER'); assert.equal(disp(max(diag.up), 0.5), '0.566');
 });
 
-test('readout: failing tier and hole(s) are named', () => {
-  assert.deepEqual(evaluate(oneHole(perp([0.2, 0]))).failLower, ['H1']);
-  assert.deepEqual(evaluate(oneHole(perp([0.2, 0]), 2)).failLower, ['H3']);
-  assert.deepEqual(evaluate(oneHole([0, 0, 0.12, 0])).failLower, ['H1']);
-  assert.deepEqual(evaluate([[0, 0, 0.12, 0], [0, 0, 0.12, 0], [0, 0, 0.12, 0], [0, 0, 0.12, 0]]).failLower, ['H1', 'H2', 'H3', 'H4']);
+test('readout: every hole tied at the max is named; the outlier is separate', () => {
+  const p4 = evaluate(oneHole(perp([0.2, 0])));
+  assert.deepEqual(p4.failLower, ['H1', 'H2', 'H3', 'H4']); assert.equal(p4.outlier, 'H1');
+  const h3 = evaluate(oneHole(perp([0.2, 0]), 2));
+  assert.deepEqual(h3.failLower, ['H1', 'H2', 'H3', 'H4']); assert.equal(h3.outlier, 'H3');
+  assert.equal(evaluate(oneHole([0, 0, 0.12, 0])).outlier, 'H1');
+  const lean = evaluate([[0, 0, 0.12, 0], [0, 0, 0.12, 0], [0, 0, 0.12, 0], [0, 0, 0.12, 0]]);
+  assert.deepEqual(lean.failLower, ['H1', 'H2', 'H3', 'H4']); assert.equal(lean.outlier, null);
   const both = evaluate(oneHole(perp([0.3, 0])));
-  assert.equal(both.code, 'FAIL_BOTH'); assert.deepEqual(both.failUpper, ['H1']); assert.deepEqual(both.failLower, ['H1']);
-  assert.deepEqual(evaluate(patternMove(0.18, 0.24, 0)).failUpper, ['H1', 'H2', 'H3', 'H4']);
-  assert.deepEqual(evaluate(patternMove(0.18, 0.24, 0)).failLower, []);
+  assert.equal(both.code, 'FAIL_BOTH'); assert.deepEqual(both.failUpper, ['H1']); assert.equal(both.outlier, 'H1');
+  const p3 = evaluate(patternMove(0.18, 0.24, 0));
+  assert.deepEqual(p3.failUpper, ['H1', 'H2', 'H3', 'H4']); assert.deepEqual(p3.failLower, []); assert.equal(p3.outlier, null);
+});
+
+test('display: Lesson 1 round-up rule with the 1e-9 guard', () => {
+  assert.equal(disp(0.410045, 0.5), '0.411'); // EC23 upper: measured rounds UP (spec table said 0.41)
+  assert.equal(dispUp(0.410045), '0.411');
+  assert.equal(disp(0.2035385, 0.5), '0.204'); // P2 / EC7
+  assert.equal(disp(0.5000000005, 0.5), '0.5'); // within slack: PASS, shows the limit, never above it
+  assert.equal(disp(0.25 * 2 + 2.5e-10 * 2, 0.5), '0.5');
+  assert.equal(disp(0.5 + 2e-6, 0.5), '0.501'); // just outside: FAIL, strictly above
+  assert.equal(disp(0.4999, 0.5), '0.5'); // pass rounding up to the limit is fine
+  assert.equal(disp(0.1 + 1e-4, 0.1), '0.101');
+  assert.equal(disp(0.13000000000000034), '0.13'); assert.equal(dispUp(0.13000000000000034), '0.13'); // float noise
+  assert.equal(disp(-0.12), '−0.12'); assert.equal(disp(0), '0');
+  // every edge case: a PASS never displays above its limit; a FAIL never displays at or below it
+  for (const [k, c] of Object.entries(FX.cases)) {
+    const r = evaluate(c.devs), u = Math.max(...r.up);
+    const su = Number(disp(u, 0.5, r.allUp)), sl = Number(disp(r.lo, 0.1, r.loOk));
+    assert.ok(r.allUp ? su <= 0.5 : su > 0.5, `${k} upper display ${su}`);
+    assert.ok(r.loOk ? sl <= 0.1 : sl > 0.1, `${k} lower display ${sl}`);
+  }
+  const eps = evaluate(patternMove(0.25 + 2.5e-10, 0, 0));
+  assert.equal(eps.code, 'PASS'); assert.equal(disp(Math.max(...eps.up), 0.5, eps.allUp), '0.5');
+});
+
+test('explainer citations: only the four topic names', async () => {
+  const { EXPLAIN, TOPICS } = await import('../composite/src/copy.js');
+  const allowed = new Set(Object.values(TOPICS));
+  for (const l of EXPLAIN) {
+    for (const c of l.citations) assert.ok(allowed.has(c), c);
+    assert.equal(l.citations.length > 0, l.type === 'rule', l.text);
+  }
+  for (const t of allowed) assert.ok(EXPLAIN.some((l) => l.citations.includes(t)), `topic used: ${t}`);
 });
 
 test('all 164 Python checks ported', () => {

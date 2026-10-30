@@ -1,14 +1,14 @@
 // Lesson 2 side panel: verdict per tier, per-hole readout, explainer, presets, pattern and
 // hole controls, view settings. Same section order and classes as Lesson 1. No Three.js.
 import { VIEW, PRESETS, EXTRA_PRESETS } from './config.js';
-import { disp, HOLE_NAMES, T_UP, T_LO, VERDICT_TEXT, SIZE_LO, SIZE_HI } from './composite.js';
+import { disp, dispUp, HOLE_NAMES, T_UP, T_LO, VERDICT_TEXT, SIZE_LO, SIZE_HI } from './composite.js';
 import { explainHTML, fcfHTML } from './copy.js';
 
 const sgn = (v) => { const s = disp(v); return s === '0' ? '+0' : s.startsWith('−') ? s : `+${s}`; };
 const BADGE = { PASS: '✔ PASS', FAIL_UPPER: '✘ FAIL: upper', FAIL_LOWER: '✘ FAIL: lower', FAIL_BOTH: '✘ FAIL: both', REJECT_SIZE: '✘ REJECT: size' };
 export const STATUS_LIST = Object.values(VERDICT_TEXT);
 const tone = (code) => (code === 'PASS' ? 'pass' : code === 'REJECT_SIZE' ? 'na' : 'fail');
-const cmp = (v, lim, ok) => `⌀${disp(v, ok ? null : lim)} ${ok ? '≤' : '>'} ⌀${disp(lim)}`;
+const cmp = (v, lim, ok) => `⌀${disp(v, lim, ok)} ${ok ? '≤' : '>'} ⌀${disp(lim)}`;
 
 export function createUI(root, h) {
   root.innerHTML = template();
@@ -42,14 +42,14 @@ export function createUI(root, h) {
     const upLine = $('#tier-up'), loLine = $('#tier-lo');
     upLine.className = `tier ${rej ? 'na' : res.allUp ? 'pass' : 'fail'}`;
     loLine.className = `tier ${rej ? 'na' : res.loOk ? 'pass' : 'fail'}`;
-    upLine.querySelector('.v').textContent = rej ? `⌀${disp(res.up[worst])} (info)` : cmp(res.up[worst], T_UP, res.allUp);
+    upLine.querySelector('.v').textContent = rej ? `⌀${dispUp(res.up[worst])} (info)` : cmp(res.up[worst], T_UP, res.allUp);
     upLine.querySelector('.w').textContent = `worst ${HOLE_NAMES[worst]}`;
     upLine.querySelector('.m').textContent = rej ? 'n/a' : res.allUp ? '✔ IN' : '✘ OUT';
-    loLine.querySelector('.v').textContent = rej ? `⌀${disp(res.lo)} (info)` : cmp(res.lo, T_LO, res.loOk);
+    loLine.querySelector('.v').textContent = rej ? `⌀${dispUp(res.lo)} (info)` : cmp(res.lo, T_LO, res.loOk);
     loLine.querySelector('.m').textContent = rej ? 'n/a' : res.loOk ? '✔ IN' : '✘ OUT';
     const fails = [];
     if (!rej && !res.allUp) fails.push(`upper row (${res.failUpper.join(', ')})`);
-    if (!rej && !res.loOk) fails.push(`lower row (${res.failLower.join(', ')})`);
+    if (!rej && !res.loOk) fails.push(`lower row (${res.failLower.join(', ')}${res.outlier ? `; the outlier: ${res.outlier}` : ''})`);
     $('#fail-line').textContent = rej ? `hole size outside ⌀${disp(SIZE_LO)}–${disp(SIZE_HI)}: position not judged` : fails.length ? `Fails: ${fails.join(' and ')}` : 'Both rows pass: every axis is in its green and its blue zone.';
     $('#fit-line').textContent = `blue set best fit: shift dx ${sgn(res.fit.tx)}, dy ${sgn(res.fit.ty)} · rotation ${sgn(res.fit.deg)}° (information)`;
     $('#size-line').textContent = res.sizes.every((s, i) => res.sizeOk[i]) ? `Hole sizes ✔ within ⌀${disp(SIZE_LO)}–${disp(SIZE_HI)}` : `Hole size ✘ ${HOLE_NAMES.filter((_, i) => !res.sizeOk[i]).join(', ')} outside ⌀${disp(SIZE_LO)}–${disp(SIZE_HI)}`;
@@ -57,9 +57,9 @@ export function createUI(root, h) {
       const row = $(`#row-${i}`);
       const ok = res.upOk[i] && res.loHoleOk[i];
       row.className = `${rej ? 'na' : ok ? 'pass' : 'fail'}${state.selected === i ? ' sel' : ''}`;
-      row.querySelector('.u').textContent = rej ? `⌀${disp(res.up[i])}` : cmp(res.up[i], T_UP, res.upOk[i]);
+      row.querySelector('.u').textContent = rej ? `⌀${dispUp(res.up[i])}` : cmp(res.up[i], T_UP, res.upOk[i]);
       const lo = 2 * res.loHoleR[i];
-      row.querySelector('.l').textContent = rej ? `⌀${disp(lo)}` : cmp(lo, T_LO, res.loHoleOk[i]);
+      row.querySelector('.l').textContent = rej ? `⌀${dispUp(lo)}` : cmp(lo, T_LO, res.loHoleOk[i]);
       row.querySelector('.s').textContent = `⌀${disp(res.sizes[i])}`;
       row.querySelector('.mark').textContent = rej ? 'n/a' : ok ? '✔' : '✘';
     });
@@ -82,7 +82,7 @@ export function createUI(root, h) {
     $('#drawing').checked = state.drawing;
     const badge = document.getElementById('status-badge');
     badge.className = `status-badge ${t}`;
-    badge.innerHTML = `${BADGE[res.code] ?? res.code}<small>upper ${rej ? `⌀${disp(res.up[worst])}` : cmp(res.up[worst], T_UP, res.allUp)} · lower ${rej ? `⌀${disp(res.lo)}` : cmp(res.lo, T_LO, res.loOk)}</small><span class="size-note">${fails.length ? fails.join(' · ') : rej ? 'size rejected: position not judged' : 'both rows pass'}</span>`;
+    badge.innerHTML = `${BADGE[res.code] ?? res.code}<small>upper ${rej ? `⌀${dispUp(res.up[worst])}` : cmp(res.up[worst], T_UP, res.allUp)} · lower ${rej ? `⌀${dispUp(res.lo)}` : cmp(res.lo, T_LO, res.loOk)}</small><span class="size-note">${fails.length ? fails.join(' · ') : rej ? 'size rejected: position not judged' : 'both rows pass'}</span>`;
     document.getElementById('mag-badge').innerHTML = `<span class="lg-up">■</span> upper ⌀0.5 fixed · <span class="lg-lo">■</span> lower ⌀0.1 best fit · ×${state.magnification}`;
   }
   return { render };

@@ -37,3 +37,4 @@
 .hole-seg button + button { border-left: none; }
 .hole-seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .label.hole-tag, .label.pattern-tag { font-size: 11px !important; }
+.label.hole-tag.outlier { color: #fff; background: var(--out); border-color: var(--out); }

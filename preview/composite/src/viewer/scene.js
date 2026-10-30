@@ -298,6 +298,9 @@ function buildHandles() {
       const col = na ? COLORS.na : ok ? COLORS.in : COLORS.out;
       h.top.material.color.set(col); h.bottom.material.color.set(col);
       h.tag.element.classList.toggle('sel', state.selected === i);
+      const out = !na && res.outlier === HOLE_NAMES[i];
+      h.tag.element.classList.toggle('outlier', out);
+      h.tag.element.textContent = out ? `${HOLE_NAMES[i]} · the outlier` : HOLE_NAMES[i];
     });
     const p = state.pattern;
     const c = [CEN[0] + M * p.tx, CEN[1] + M * p.ty];

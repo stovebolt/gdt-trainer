@@ -20,7 +20,7 @@ export const EXPLAIN = Object.freeze([
   R('Each hole axis must lie in its Ø0.50 zone and in its Ø0.10 zone at the same time, with one placement of the Ø0.10 set for all holes.', PLZ, FRZ),
   R('Lower-row datums must repeat the upper-row datums in the same order, starting from the first.', FRZ, DRF),
   P("Composite position is used when the pattern's location to the part can be loose but the holes must match a mating part's pattern closely, for example a bolt pattern."),
-  P("The small zones don't have to sit inside the big ones; only the axes must be in both."),
+  R('Only the axes must lie in both zones; a ⌀0.10 zone may extend past its ⌀0.50 zone.', PLZ, FRZ),
   N("The slide limit here is only the lesson's drag range. It is not a tolerance."),
   N('The blue zones are drawn at their best-fit placement.'),
 ]);

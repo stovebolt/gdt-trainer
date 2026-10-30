@@ -1,0 +1,38 @@
+/* Lesson 2 (composite position) additions on top of the shared styles.css. */
+:root { --lo: #2563eb; }
+.fcf-composite td.empty { border: none; border-top: 2px solid var(--ink); background: transparent; }
+.fcf-composite td.tol.lo { color: var(--lo); }
+.fcf-chip .fcf-composite td.empty { border: none; border-top: 2px solid var(--ink); }
+.tier { display: grid; grid-template-columns: minmax(150px, 1.3fr) minmax(120px, 1fr) 72px 54px; gap: 6px; align-items: baseline; font: 700 15px system-ui; padding: 2px 0; }
+.tier .m { text-align: right; white-space: nowrap; }
+.tier .v { white-space: nowrap; }
+.tier.pass .m { color: var(--in); }
+.tier.fail .m, .tier.fail .v { color: var(--out); }
+.tier.na .m { color: #64748b; }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 2px solid; }
+.sw.up { background: rgba(22,163,74,.25); border-color: var(--in); }
+.sw.lo { background: rgba(59,130,246,.45); border-color: var(--lo); }
+#pos-status { white-space: nowrap; min-width: 9.5em; display: inline-block; }
+.fail-line { font: 600 13px/1.35 system-ui; min-height: 2.7em; }
+.overall.fail .fail-line { color: var(--out); }
+.overall.pass .fail-line { color: var(--in); }
+.readout.holes td, .readout.holes th { white-space: nowrap; }
+.readout.holes tr.sel th { text-decoration: underline; }
+.readout.holes tr.fail td.mark { color: var(--out); }
+.readout.holes tr.pass td.mark { color: var(--in); }
+.hole-seg { margin: 4px 0 2px; display: inline-flex; }
+.presets button[aria-pressed="true"] { outline: 3px solid var(--ink); }
+.lg-up { color: #16a34a; } .lg-lo { color: var(--lo); }
+.label.hole-tag { font-weight: 800; }
+.label.hole-tag.sel { outline: 2px solid var(--ink); }
+.label.pattern-tag { color: var(--lo); }
+@media (max-width: 700px), (max-height: 500px) {
+  .tier { grid-template-columns: minmax(118px, 1.2fr) minmax(104px, 1fr) 0 46px; font-size: 13px; gap: 4px; }
+  .tier .w { display: none; }
+  .readout.holes { font-size: 12px; }
+}
+.hole-seg button { min-width: 52px; border-radius: 0; margin: 0; }
+.hole-seg button:first-child { border-radius: 8px 0 0 8px; }
+.hole-seg button:last-child { border-radius: 0 8px 8px 0; }
+.hole-seg button + button { border-left: none; }
+.hole-seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }

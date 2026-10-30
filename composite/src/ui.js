@@ -83,7 +83,7 @@ export function createUI(root, h) {
     const badge = document.getElementById('status-badge');
     badge.className = `status-badge ${t}`;
     badge.innerHTML = `${BADGE[res.code] ?? res.code}<small>upper ${rej ? `⌀${disp(res.up[worst])}` : cmp(res.up[worst], T_UP, res.allUp)} · lower ${rej ? `⌀${disp(res.lo)}` : cmp(res.lo, T_LO, res.loOk)}</small><span class="size-note">${fails.length ? fails.join(' · ') : rej ? 'size rejected: position not judged' : 'both rows pass'}</span>`;
-    document.getElementById('mag-badge').innerHTML = `<span class="lg-up">■</span> ⌀0.5 upper, fixed · <span class="lg-lo">■</span> ⌀0.1 lower, best fit · drawn ×${state.magnification}`;
+    document.getElementById('mag-badge').innerHTML = `<span class="lg-up">■</span> upper ⌀0.5 fixed · <span class="lg-lo">■</span> lower ⌀0.1 best fit · ×${state.magnification}`;
   }
   return { render };
 }

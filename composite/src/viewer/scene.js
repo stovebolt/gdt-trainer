@@ -64,7 +64,8 @@ export function createViewer(container) {
   // Narrow canvases (phones, portrait): pull the overview back so the whole plate fits.
   const fitScale = () => Math.min(2.4, Math.max(1, 1.45 / aspect()));
   const overview = () => {
-    const t = DEFAULT_CAMERA.target, s = fitScale();
+    // phones: the badge + view row cover the top of the canvas, so aim higher (part sits lower) and pull back
+    const t = isPhone() ? [DEFAULT_CAMERA.target[0], DEFAULT_CAMERA.target[1] + 9, DEFAULT_CAMERA.target[2] + 8] : DEFAULT_CAMERA.target, s = fitScale() * (isPhone() ? 1.18 : 1);
     return { position: DEFAULT_CAMERA.position.map((p, i) => t[i] + s * (p - t[i])), target: [...t] };
   };
   function setProjection(kind) {
@@ -94,10 +95,17 @@ export function createViewer(container) {
     };
     if (ms <= 0) anim(performance.now() + 1);
   }
-  const halfFor = () => { const a = aspect(); return Math.max(36, 58 / a) * (isPhone() ? 1.02 : 1); };
+  const halfFor = () => { const a = aspect(); return Math.max(36, 58 / a) * (isPhone() ? 1.5 : 1); };
+  // phones: the overlay covers the top of the canvas, so the view centre sits higher (part lower)
+  const orthoTarget = (name, halfH) => {
+    if (!isPhone()) return VIEW_TARGET;
+    const up = name === 'top' ? [0, 1, 0] : [0, 0, 1];
+    const right = name === 'side' ? [0, 1, 0] : [1, 0, 0]; // and a little right of centre: the HUD sits bottom-right
+    return VIEW_TARGET.map((v, i) => v + up[i] * 0.2 * halfH + right[i] * 0.16 * halfH * aspect());
+  };
   function setView(name, { ms = SNAP_MS } = {}) {
     if (name === '3d') { setProjection('persp'); animateTo(overview(), { ms }); }
-    else { setProjection('ortho'); fitOrtho(halfFor()); const halfH = halfFor(); animateTo(viewPose(name, VIEW_TARGET, VIEW_DIST), { halfH, ms }); }
+    else { setProjection('ortho'); fitOrtho(halfFor()); const halfH = halfFor(); animateTo(viewPose(name, orthoTarget(name, halfH), VIEW_DIST), { halfH, ms }); }
     viewName = name; onViewChange();
   }
   function resetCamera() { setProjection('persp'); const p = overview(); camera.position.set(...p.position); controls.target.set(...p.target); controls.update(); viewName = '3d'; onViewChange(); }

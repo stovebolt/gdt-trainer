@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PREVIEW: Composite position · GD&amp;T Trainer</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./composite.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main id="app">
+    <div id="viewport">
+      <div class="overlay">
+        <div id="status-badge" class="status-badge"></div>
+        <div id="view-bar" class="view-bar">
+          <div id="view-row" class="view-row" role="group" aria-label="View">
+            <button type="button" data-view="top" aria-pressed="false" title="Top view, looking down Z (ortho)">Top Z</button><button type="button" data-view="front" aria-pressed="false" title="Front view, looking along Y (ortho)">Front Y</button><button type="button" data-view="side" aria-pressed="false" title="Side view, looking along X (ortho)">Side X</button><button type="button" data-view="3d" aria-pressed="true" title="Default 3D perspective orbit">3D</button><button type="button" id="proj-btn" class="proj" aria-pressed="false" title="Orthographic / perspective">Ortho</button>
+          </div>
+        </div>
+        <div id="mag-badge" class="mag-badge"></div>
+      </div>
+      <div id="hud-br" class="hud-br">
+        <button id="drawing-btn" class="drawing-btn" type="button" aria-pressed="false">Show drawing</button>
+        <div id="fcf-chip" class="fcf-chip"></div>
+      </div>
+    </div>
+    <aside id="panel"></aside>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+  <div id="preview-tag" style="position:fixed;right:4px;bottom:4px;z-index:9999;background:#7c3aed;color:#fff;font:700 11px/1.2 system-ui,sans-serif;padding:3px 7px;border-radius:4px;pointer-events:none;opacity:.92">PREVIEW: Composite position</div>
+</body>
+</html>

@@ -159,6 +159,10 @@ test('display: Lesson 1 round-up rule with the 1e-9 guard', () => {
 
 test('explainer citations: only the four topic names', async () => {
   const { EXPLAIN, TOPICS } = await import('../composite/src/copy.js');
+  const l8 = EXPLAIN[7];
+  assert.equal(l8.type, 'rule'); assert.equal(l8.text, 'Only the axes must lie in both zones; a ⌀0.10 zone may extend past its ⌀0.50 zone.');
+  assert.deepEqual(l8.citations, [TOPICS.PLZ, TOPICS.FRZ]);
+  assert.equal(EXPLAIN.length, 10); assert.equal(EXPLAIN[6].type, 'practice');
   const allowed = new Set(Object.values(TOPICS));
   for (const l of EXPLAIN) {
     for (const c of l.citations) assert.ok(allowed.has(c), c);

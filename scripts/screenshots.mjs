@@ -445,6 +445,54 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
     { const w = await page.evaluate(() => ({ detail: document.getElementById('pos-detail').innerText, badge: document.getElementById('status-badge').innerText, cls: document.getElementById('status-badge').className, overall: document.getElementById('overall').className, centre: getComputedStyle(document.getElementById('i-centre')).display }));
       ckV('all dropped: wording "No datum reference: position is undefined" in the panel and the badge; neutral gray; no centre marker', w.detail === 'No datum reference: position is undefined' && w.badge.includes('No datum reference: position is undefined') && /na/.test(w.cls) && /na/.test(w.overall) && !/pass|fail/.test(w.cls + w.overall) && w.centre === 'none', w); }
     await page.screenshot({ path: 'screenshots/datum_none.png' });
+    // ---- Position / Virtual condition toggle (Sally) ----
+    {
+      const CK = ckV, TAP = (sel) => page.click(sel), SHOT = (n) => page.screenshot({ path: `screenshots/${n.replace(/-/g, '_')}.png` });
+      const VC = () => page.evaluate(() => { const r = window.gdt.result(), e = (id) => document.getElementById(id); const btn = document.querySelector('#view-row [data-mode="vc"]'); const lab = document.querySelector('.vc-label'); const zl = [...document.querySelectorAll('.zone-label')].find((x) => !x.classList.contains('vc-label'));
+        return { verdict: r.verdict, shown: r.vcShown, applies: r.vc.applies, inside: r.vc.inside, lockR: r.vc.lockRadius, kind: r.vc.kind, vc: r.vc.vc, cmin: r.vc.clearance?.min, clear: e('vc-clear').innerText, clearCls: e('vc-clear').className, disabled: btn.disabled, pressed: btn.getAttribute('aria-pressed'), note: e('vc-rfs-note').hidden ? '' : e('vc-rfs-note').innerText, label: lab ? lab.textContent.replace(/\s+/g, ' ') : '', zoneLabel: !!zl, mag: e('mag-badge').innerText, tb: r.top.r, bb: r.bottom.r, zone: r.zone }; });
+      const vcReset = () => page.evaluate(() => { const g = window.gdt; g.setLock(false); g.setTiltLock(false); g.setDatums({ A: true, B: true, C: true }); g.setStated(0.25); g.setModifier('RFS'); g.setSize(10.1); g.setVcView(false); g.applyPreset('centered'); });
+      await vcReset(); await page.waitForTimeout(200);
+      let v = await VC();
+      CK('VC toggle at RFS: "Virtual condition" disabled, note "Virtual condition applies at MMC or LMC.", Position view stays', v.disabled && v.note === 'Virtual condition applies at MMC or LMC.' && v.clear === v.note && !v.shown && v.zoneLabel && v.pressed === 'false', v);
+      await page.locator('#view-row [data-mode="vc"]').click({ force: true }).catch(() => {}); await page.waitForTimeout(150); v = await VC();
+      CK('tapping the disabled VC button at RFS does nothing', !v.shown && v.zoneLabel, v);
+      await page.evaluate(() => window.gdt.setModifier('MMC')); await page.waitForTimeout(100);
+      await TAP('#view-row [data-mode="vc"]'); await page.waitForTimeout(400); v = await VC();
+      CK('MMC: Virtual condition on: red VC pin ⌀9.75 drawn (label), zone label gone, note hidden, badge says VC true size', v.shown && v.pressed === 'true' && v.kind === 'pin' && v.vc === 9.75 && /VC pin ⌀9\.75 \(MMC\)/.test(v.label) && !v.zoneLabel && v.note === '' && /VC true size/.test(v.mag), v);
+      const sizes = [];
+      for (const s of [10, 10.1, 10.2]) { await page.evaluate((s) => window.gdt.setSize(s), s); await page.waitForFunction(() => /⌀9\.75/.test(document.querySelector('.vc-label')?.textContent ?? ''), null, { timeout: 3000 }).catch(() => {}); const x = await VC(); sizes.push([s, x.vc, x.label.match(/⌀[\d.]+/)?.[0]]); }
+      CK('MMC: VC size follows stated + modifier only (⌀9.75 at every hole size)', sizes.every((x) => x[1] === 9.75 && x[2] === '⌀9.75'), sizes);
+      await page.evaluate(() => window.gdt.setStated(0.4)); await page.waitForFunction(() => /⌀9\.6/.test(document.querySelector('.vc-label')?.textContent ?? ''), null, { timeout: 3000 }).catch(() => {}); v = await VC();
+      CK('MMC: stated ⌀0.4 -> VC ⌀9.6', v.vc === 9.6 && /⌀9\.6/.test(v.label), v.label);
+      await page.evaluate(() => { window.gdt.setStated(0.25); window.gdt.setSize(10.1); }); await page.waitForTimeout(80);
+      // equivalence sweep: VC view vs bonus-zone view, both modifiers, sizes, offsets (incl. exact boundary)
+      const bad = await page.evaluate(() => { const g = window.gdt, out = []; let n = 0;
+        for (const m of ['MMC', 'LMC']) { g.setModifier(m); for (const s of [10, 10.05, 10.1, 10.2, 9.99, 10.21]) { g.setSize(s);
+          for (const dx of [0, 0.05, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.3]) for (const dy of [0, 0.05, -0.1]) {
+            g.setVcView(false); g.setAxis({ bottom: { dx, dy }, top: { dx: -dx / 2, dy } }); const a = g.result().verdict;
+            g.setVcView(true); const r = g.result(); n++;
+            const clsOk = ['REJECT_SIZE', 'NO_DATUMS'].includes(r.verdict) ? !/pass|fail/.test(document.getElementById('vc-clear').className) : document.getElementById('vc-clear').classList.contains(r.verdict === 'IN' ? 'pass' : 'fail');
+            if (a !== r.verdict || (r.verdict === 'IN') !== r.vc.inside && r.verdict !== 'REJECT_SIZE' || !clsOk) out.push([m, s, dx, dy, a, r.verdict, r.vc.inside]);
+          } } }
+        return { n, out: out.slice(0, 5), nbad: out.length }; });
+      CK(`VC view and Position view never disagree on IN/OUT (${bad.n} cases, MMC + LMC, boundary incl.), clearance line colour agrees`, bad.nbad === 0, bad);
+      await page.evaluate(() => { const g = window.gdt; g.setModifier('MMC'); g.setSize(10.1); g.setVcView(true); g.setAxis({ bottom: { dx: 0.1, dy: 0.05 }, top: { dx: 0, dy: 0 } }); }); await page.waitForTimeout(100); v = await VC();
+      CK('clearance readout = leftover tolerance (⌀10.1 MMC, r 0.112: clearance 0.063 mm = leftover ⌀0.126; rounded down)', /clearance 0\.063 mm = leftover ⌀0\.126/.test(v.clear) && /pass/.test(v.clearCls), v.clear);
+      // lock: the VC is impermeable; a drag stops at contact
+      await page.evaluate(() => { const g = window.gdt; g.applyPreset('centered'); g.setLock(true); for (let i = 1; i <= 40; i++) g.dragAxis({ top: { dx: 0.01 * i, dy: 0.004 * i } }); }); await page.waitForTimeout(100); v = await VC();
+      CK('MMC lock: dragging TOP outward stops at contact (r = (d − 9.75)/2 = 0.175), wall never crosses, IN, clearance 0', v.inside && v.verdict === 'IN' && Math.abs(v.tb - 0.175) < 0.0015 && /clearance 0 mm/.test(v.clear), v);
+      if (SHOT) await SHOT('vc-mmc-locked');
+      await page.evaluate(() => { const g = window.gdt; g.setModifier('LMC'); g.setSize(10.05); g.applyPreset('centered'); for (let i = 1; i <= 40; i++) g.dragAxis({ bottom: { dx: -0.01 * i, dy: 0 } }); }); await page.waitForTimeout(150); v = await VC();
+      CK('LMC: VC boundary ⌀10.45 (hole stays inside); lock stops at (10.45 − d)/2 = 0.2; IN', v.kind === 'boundary' && v.vc === 10.45 && /VC boundary ⌀10\.45 \(LMC\)/.test(v.label) && Math.abs(v.bb - 0.2) < 0.0015 && v.inside && v.verdict === 'IN', v);
+      if (SHOT) await SHOT('vc-lmc');
+      // datums dropped: the VC slides with the zone's best fit
+      await page.evaluate(() => { const g = window.gdt; g.setLock(false); g.setModifier('MMC'); g.setSize(10.1); g.setDatum('C', false); g.setAxis({ bottom: { dx: 0, dy: 0.3 }, top: { dx: 0, dy: 0.3 } }); }); await page.waitForTimeout(150); v = await VC();
+      CK('C dropped: the VC slides with the zone best fit (centre dy +0.3), still IN, label shown', v.shown && Math.abs(v.zone.dy - 0.3) < 1e-9 && v.verdict === 'IN' && v.inside && v.label !== '', v);
+      await page.evaluate(() => window.gdt.setModifier('RFS')); await page.waitForTimeout(150); v = await VC();
+      CK('switching to RFS while in VC view: back to Position view, VC disabled, note shown', !v.shown && v.disabled && v.zoneLabel && v.note !== '', v);
+      if (SHOT) await SHOT('vc-rfs-disabled');
+      await vcReset(); await page.waitForTimeout(200);
+    }
     // ---- Explain this setup (desktop: open by default, updates live) ----
     {
       const reset = () => page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setStated(0.25); window.gdt.setSize(10.1); window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('centered'); window.scrollTo(0, 0); });
@@ -467,6 +515,11 @@ console.log(`${insetOk ? 'OK  ' : 'FAIL'} inset drag of B -> bottom dx=${inset.b
         if (k === 'B') { await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.screenshot({ path: 'screenshots/explain_b_only.png' }); }
       }
       // advice never changes IN/OUT: toggling the panel and changing nothing else keeps the verdict
+      for (const [k, d, want] of [['AB', { A: true, B: true, C: false }, true], ['AC', { A: true, B: false, C: true }, true], ['A', { A: true, B: false, C: false }, true], ['B', { A: false, B: true, C: false }, true], ['C', { A: false, B: false, C: true }, true], ['ABC', { A: true, B: true, C: true }, false], ['BC', { A: false, B: true, C: true }, false], ['none', { A: false, B: false, C: false }, false]]) {
+        await page.evaluate((d) => window.gdt.setDatums(d), d); await page.waitForTimeout(150); const t = (await X()).text;
+        ckV(`explainer ${k}: basic-dimension Rule ${want ? 'shown (B and/or C dropped)' : 'absent'}`, t.includes('Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.') === want && t.includes("The slide limit here is only the lesson's drag range. It is not a tolerance.") === want, t.slice(0, 200));
+      }
+      await page.evaluate(() => window.gdt.setDatums({ A: true, B: true, C: true })); await page.waitForTimeout(150);
       const v1 = (await X()).verdict; await page.evaluate(() => { document.getElementById('explain').open = false; }); const v2 = (await X()).verdict; await page.evaluate(() => { document.getElementById('explain').open = true; });
       ckV('explainer is advice only: collapsing / expanding it never changes the verdict', v1 === v2, [v1, v2]);
       await reset();

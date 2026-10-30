@@ -6,6 +6,7 @@ import { clampMagnification, maxMagnificationFor } from './exaggeration.js';
 import { createViewer, isPhone } from './viewer/scene.js';
 import { attachDrag } from './interaction.js';
 import { createUI } from './ui.js';
+import { vcState, vcLockRadius, vcMagnification } from './vc.js';
 
 const TP = SPEC.truePosition;
 const clampOffset = (v) => Math.max(-VIEW.maxDeviation, Math.min(VIEW.maxDeviation, Math.round(v * 1e3) / 1e3));
@@ -24,6 +25,7 @@ const state = {
   shrinkFrom: null, // allowed ⌀ before a zone shrink that happened while locked (for the note)
   datums: { A: true, B: true, C: true }, // datum references kept in the FCF; dropping frees the zone (ZONE.md §12)
   datumShrink: false, // a datum change while locked left an endpoint outside the (less free) zone
+  vcView: false, // view toggle: Position (zone) / Virtual condition (VC object vs hole wall); display only
 };
 const q3 = (v) => Math.round(v * 1e3) / 1e3; // UI inputs in 0.001 mm (metric display)
 const clampSize = (v) => q3(Math.max(SPEC.hole.sizeSlider.min, Math.min(SPEC.hole.sizeSlider.max, v)));
@@ -81,7 +83,12 @@ attachDrag({
 // Phones cap the exaggeration (see exaggeration.js); other screens keep the full range.
 const setMagnification = (m) => { state.magnification = clampMagnification(m, isPhone(), { min: VIEW.minMagnification, max: VIEW.maxMagnification }); refresh(); };
 
-const allowedNow = () => allowedTolerance({ stated: state.stated, modifier: state.modifier, actualSize: state.size, mmc: SPEC.hole.mmc, lmc: SPEC.hole.lmc }).allowed;
+const allowedZone = () => allowedTolerance({ stated: state.stated, modifier: state.modifier, actualSize: state.size, mmc: SPEC.hole.mmc, lmc: SPEC.hole.lmc }).allowed;
+// The lock's limit. In the Virtual condition view the VC is impermeable: the hole wall may not cross it,
+// i.e. r <= (d − VC)/2 at MMC, (VC − d)/2 at LMC at each axis end (the same tolerance-lock math with that
+// radius). Inside the size limits this equals allowed/2, so the two views never disagree.
+const vcShown = () => state.vcView && state.modifier !== 'RFS';
+const allowedNow = () => vcShown() ? Math.max(0, 2 * vcLockRadius({ stated: state.stated, modifier: state.modifier, size: state.size, mmc: SPEC.hole.mmc, lmc: SPEC.hole.lmc })) : allowedZone();
 
 // A patch that asks both ends to move by the same (dx, dy) (the slide handle, the inset axis line).
 function sameShift(patch) {
@@ -135,10 +142,10 @@ function setAxis(patch, { user = false } = {}) {
 // Size / mode / stated changes never move the axis. If the zone shrinks while
 // locked, remember the previous allowed value so the note can explain an OUT.
 function changeZone(fn) {
-  const before = allowedNow();
+  const before = allowedZone();
   const ok = fn();
   if (ok === false) return false;
-  const now = allowedNow();
+  const now = allowedZone();
   if (state.lock && now < before) state.shrinkFrom = Math.max(state.shrinkFrom ?? 0, before);
   else if (now >= (state.shrinkFrom ?? Infinity)) state.shrinkFrom = null;
   refresh();
@@ -176,7 +183,11 @@ function refresh() {
   if (state.magnification > cap) state.magnification = cap; // e.g. rotated/resized into a phone layout
   last = evaluate();
   last.magMax = cap;
-  viewer.update(state, last);
+  // Virtual condition view (MMC / LMC only): VC at true size, wall-to-VC gap and axis offsets drawn ×vcMag.
+  last.vc = vcState({ stated: state.stated, modifier: state.modifier, size: state.size, mmc: SPEC.hole.mmc, lmc: SPEC.hole.lmc, rBottom: last.bottom.r, rTop: last.top.r });
+  last.vcShown = vcShown();
+  last.vcMag = last.vc.applies ? vcMagnification({ magnification: state.magnification, stated: state.stated, modifier: state.modifier, mmc: SPEC.hole.mmc, lmc: SPEC.hole.lmc, sizeMin: SPEC.hole.sizeSlider.min, sizeMax: SPEC.hole.sizeSlider.max }) : state.magnification;
+  viewer.update(last.vcShown ? { ...state, magnification: last.vcMag } : state, last);
   viewer.setDrawing(state.drawing);
   document.getElementById('fcf-chip').innerHTML = fcfHTML(state);
   document.getElementById('fcf-chip').setAttribute('aria-label', `Feature control frame: position, diameter ${state.stated}, datums ${datumFreedom(state.datums).kept.join(' ') || 'none'}`);
@@ -188,6 +199,11 @@ function refresh() {
   // Display-only lock badges in the 3D view (shown only while each lock is on).
   document.getElementById('badge-tilt').hidden = !state.tiltLock;
   document.getElementById('badge-tol').hidden = !state.lock;
+  for (const b of document.querySelectorAll('#view-row [data-mode]')) b.setAttribute('aria-pressed', String((b.dataset.mode === 'vc') === last.vcShown));
+  const vcBtn = document.querySelector('#view-row [data-mode="vc"]');
+  vcBtn.disabled = !last.vc.applies;
+  vcBtn.title = last.vc.applies ? 'Virtual condition: the hole wall against the VC pin (MMC) or boundary (LMC)' : last.vc.note;
+  document.getElementById('vc-rfs-note').hidden = last.vc.applies;
   const dsum = datumSummary(state.datums, last.zone);
   document.getElementById('badge-datum').hidden = !dsum.badge;
   document.getElementById('badge-datum').textContent = dsum.badge;
@@ -201,17 +217,22 @@ const viewRow = document.getElementById('view-row');
 viewRow.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.mode) { if (!b.disabled) setVcView(b.dataset.mode === 'vc' ? !(isPhone() && last.vcShown) : false); return; }
   if (b.id === 'proj-btn') viewer.setProjection(viewer.view.ortho ? 'persp' : 'ortho');
   else viewer.setView(b.dataset.view);
 });
 const syncViewRow = ({ view, ortho }) => {
-  for (const b of viewRow.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === view));
+  for (const b of viewRow.querySelectorAll('button[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === view));
   const pb = document.getElementById('proj-btn');
   pb.setAttribute('aria-pressed', String(ortho));
   pb.textContent = ortho ? 'Ortho' : 'Persp';
 };
 viewer.onView(syncViewRow);
 syncViewRow(viewer.view);
+
+// ---- Position / Virtual condition toggle (display only; RFS: disabled) ----
+// (the two buttons sit at the end of the view row; on phones only "VC" shows and toggles)
+function setVcView(on) { state.vcView = !!on; refresh(); }
 
 // URL params for lessons: ?view=top|front|side|3d &tiltlock=1 &lock=1
 const qp = new URLSearchParams(location.search);
@@ -220,6 +241,7 @@ if (qp.has('lock')) setLock(on(qp.get('lock')));
 if (qp.has('tiltlock')) setTiltLock(on(qp.get('tiltlock')));
 // ?datums=AB keeps only A and B (C dropped); ?datums=none drops all three
 if (qp.has('datums')) { const v = qp.get('datums').toUpperCase(); setDatums({ A: v.includes('A'), B: v.includes('B'), C: v.includes('C') }); }
+if (qp.has('show')) setVcView(qp.get('show') === 'vc');
 if (qp.has('view') && ['top', 'front', 'side', '3d'].includes(qp.get('view'))) viewer.setView(qp.get('view'), { ms: 0 });
 
 // Small hook for automated browser checks / the Domain Expert's console use.
@@ -239,10 +261,11 @@ window.gdt = {
   setTiltLock,
   setDatum,
   setDatums,
+  setVcView,
   setView: (v, o) => viewer.setView(v, o),
   setProjection: (p) => viewer.setProjection(p),
   view: () => viewer.view,
   dragAxis: (patch) => setAxis(patch, { user: true }), // same path as a handle drag / tilt control
-  _debug: { handles: viewer.handles, get camera() { return viewer.camera; }, canvas: viewer.domElement, controls: viewer.controls },
+  _debug: { handles: viewer.handles, get camera() { return viewer.camera; }, canvas: viewer.domElement, controls: viewer.controls, scene: viewer.scene },
   ready: true,
 };

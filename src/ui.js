@@ -153,6 +153,14 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
     $('#vc-line').style.visibility = bon ? 'visible' : 'hidden';
     $('#bonus-detail').style.visibility = bon ? 'visible' : 'hidden';
     $('#teach-line').style.visibility = bon ? 'visible' : 'hidden';
+    const vc = res.vc;
+    $('#vc-clear').textContent = !vc?.applies ? vc?.note ?? '\u00a0'
+      : notJudged(res.verdict) ? `wall to VC ⌀${fmtNote(vc.vc)}: not judged (${res.verdict === 'REJECT_SIZE' ? 'size rejected' : 'no datums'})`
+      : vc.inside ? `wall to VC ⌀${fmtNote(vc.vc)} ${vc.kind}: clearance ${fmtLimit(vc.clearanceShown)} mm = leftover ⌀${fmtLimit(vc.leftoverDiameterShown)}`
+      : `wall crosses VC ⌀${fmtNote(vc.vc)} ${vc.kind} by ${fmtUp(-vc.clearance.min)} mm`;
+    $('#vc-clear').className = `vc-clear small ${vc?.applies && !notJudged(res.verdict) ? (vc.inside ? 'pass' : 'fail') : ''}`;
+    $('#vc-clear').style.visibility = 'visible'; // at RFS it carries the note "Virtual condition applies at MMC or LMC."
+
     $('#th-r').textContent = `r vs ${fmtLimit(R)}`;
     $('#th-d').textContent = `2r vs ⌀${fmtLimit(TOL)}`;
     $('#rule-note').innerHTML = `mm, offsets from ${slid ? `the slid zone centre (true position ${ds.freedom.freeX ? `dx ${fmtSigned(res.zone.dx)}` : ''}${ds.freedom.freeX && ds.freedom.freeY ? ', ' : ''}${ds.freedom.freeY ? `dy ${fmtSigned(res.zone.dy)}` : ''})` : 'true position'}. r = √(dx² + dy²). IN only if <b>both</b> endpoints have r ≤ ${fmtLimit(R)} (boundary inclusive). Metric display: up to 3 decimals; measured values round up, limits round down.`;
@@ -198,7 +206,7 @@ export function createUI(root, { onChange, onPreset, onMagnification, onXray, on
       : perp ? `perpendicularity to A ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${bon ? ` ${modSym(state.modifier)}` : ''}`
       : `position ⌀${posShown} ${res.inTolerance ? '≤' : '>'} ⌀${fmtLimit(TOL)}${bon ? ` ${modSym(state.modifier)}` : ''}`;
     badge.innerHTML = `${BADGE[res.verdict]}<small>${small}</small><span class="size-note">${sizeNote(sz)}</span>`;
-    document.getElementById('mag-badge').textContent = `Zone & deviations drawn ×${state.magnification} (display only)`;
+    document.getElementById('mag-badge').textContent = res.vcShown ? `VC true size · gaps drawn ×${res.vcMag} (display only)` : `Zone & deviations drawn ×${state.magnification} (display only)`;
     inset.render(state, res);
   }
   return { render };
@@ -362,6 +370,7 @@ function template() {
     <div id="bonus-detail" class="muted small"></div>
     <div id="shrink-note" class="shrink-note" style="visibility:hidden">${SHRINK_NOTE}</div>
     <div id="vc-line" class="vc-line"><span id="vc-text"></span><span id="rc-text" class="rc"></span></div>
+    <div id="vc-clear" class="vc-clear small">\u00a0</div>
     <div id="teach-line" class="muted small teach">${TEACH}</div>
     <div class="size-note"></div>
   </section>

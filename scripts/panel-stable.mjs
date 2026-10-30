@@ -46,6 +46,22 @@ for (const font of ['', 'DejaVu Sans, Verdana, sans-serif']) for (const width of
     console.log(width, font || 'default font', 'DATUMS', same ? 'STABLE' : 'JUMPS', JSON.stringify(Object.fromEntries(Object.entries(res).map(([k, v]) => [k, `${v.text} line=${v.line} datums=${v.datums} next=${v.afterDatums}`]))));
     await p.evaluate(() => window.gdt.setDatums({ A: true, B: true, C: true }));
   }
+  // Position / Virtual condition view: the clearance line is reserved, nothing in the panel moves
+  if (await p.evaluate(() => typeof window.gdt.setVcView === 'function')) {
+    const vk = ['panel', 'overall', 'line', 'after', 'next', 'clear'];
+    const vsnap = () => p.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map((v) => +v.toFixed(2)).join(','); };
+      return { panel: r('#panel'), overall: r('.overall'), line: r('.pos-line'), after: r('.pos-line + *'), next: r('.overall + section'), clear: r('#vc-clear'), text: document.getElementById('vc-clear').textContent }; });
+    const res = {};
+    for (const [k, m, vc, size, dx] of [['rfs-pos', 'RFS', false, 10.1, 0.1], ['rfs-vc-req', 'RFS', true, 10.1, 0.1], ['mmc-pos', 'MMC', false, 10.1, 0.1], ['mmc-vc-in', 'MMC', true, 10.1, 0.1], ['mmc-vc-out', 'MMC', true, 10.1, 0.3], ['mmc-vc-rej', 'MMC', true, 10.25, 0.1], ['lmc-vc-in', 'LMC', true, 10.05, 0.1], ['lmc-vc-out', 'LMC', true, 10.2, 0.2]]) {
+      await p.evaluate(([m, vc, size, dx]) => { const g = window.gdt; g.setModifier(m); g.setSize(size); g.setVcView(vc); g.setAxis({ bottom: { dx, dy: 0 }, top: { dx, dy: 0 } }); }, [m, vc, size, dx]);
+      await p.waitForTimeout(80); res[k] = await vsnap();
+    }
+    const first = Object.values(res)[0];
+    const same = Object.values(res).every((s) => vk.every((k) => s[k] === first[k]));
+    ok &&= same;
+    console.log(width, font || 'default font', 'VC', same ? 'STABLE' : 'JUMPS', JSON.stringify(Object.fromEntries(Object.entries(res).map(([k, v]) => [k, `${v.text} clear=${v.clear} next=${v.next}`]))));
+    await p.evaluate(() => { const g = window.gdt; g.setVcView(false); g.setModifier('RFS'); g.setSize(10.1); g.applyPreset('centered'); });
+  }
   // status slot fits every status string (measured in the live #pos-status font)
   const fit = await p.evaluate((list) => {
     const el = document.getElementById('pos-status'); const slot = el.getBoundingClientRect().width;

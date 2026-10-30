@@ -307,7 +307,7 @@ for (const name of DEVICES) {
       const shown = (e) => e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && r(e).width > 0;
       const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
       const cv = r(window.gdt._debug.canvas);
-      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #hud-br, #view-row, .lock-badge')].filter(shown);
+      const items = [...document.querySelectorAll('.zone-label, .axis-name-label, .handle-label, .tp-label, #status-badge, #mag-badge, #hud-br, #view-row, #vc-rfs-note, .lock-badge')].filter(shown);
       const name = (e) => e.id || e.className.split(' ')[1] || e.innerText.split(' ')[0];
       const issues = [];
       for (const e of items) { const b = r(e); if (b.left < cv.left - 0.5 || b.right > cv.right + 0.5 || b.top < cv.top - 0.5 || b.bottom > cv.bottom + 0.5) issues.push(name(e) + ' off-view'); }
@@ -325,7 +325,7 @@ for (const name of DEVICES) {
     await page.evaluate(() => { window.gdt.setLock(false); window.gdt.setTiltLock(false); window.gdt.setModifier('RFS'); window.gdt.setSize(10.1); window.gdt.applyPreset('centered'); });
     await home(); await page.waitForTimeout(300);
     const btns = await page.evaluate(() => [...document.querySelectorAll('#view-row button')].map((b) => { const q = b.getBoundingClientRect(); return { t: b.innerText, w: Math.round(q.width), h: Math.round(q.height) }; }));
-    check('view row (Top Z / Front Y / Side X / 3D / Ortho) in the 3D view, every button >= 40px', btns.length === 5 && btns.every((b) => b.w >= 40 && b.h >= 40), btns.map((b) => `${b.t} ${b.w}x${b.h}`).join(', '));
+    check('view row (Top Z / Front Y / Side X / 3D / Ortho + Position / VC) in the 3D view, every shown button >= 40px', btns.filter((b) => b.w > 0).length >= 6 && btns.filter((b) => b.w > 0).every((b) => b.w >= 40 && b.h >= 40), btns.map((b) => `${b.t} ${b.w}x${b.h}`).join(', '));
     const expect = {
       top: { k: 'top', dx: 40, dy: -30, ok: (a, b) => b.t.dx > a.t.dx + 0.02 && b.t.dy > a.t.dy + 0.02 && b.b.dx === a.b.dx, what: 'TOP moves +X/+Y' },
       front: { k: 'bottom', dx: 40, dy: -30, ok: (a, b) => b.b.dx > a.b.dx + 0.02 && b.b.dy === a.b.dy && b.t.dx === a.t.dx, what: 'BOTTOM moves in X only' },
@@ -519,6 +519,58 @@ for (const name of DEVICES) {
         }
         await page.evaluate(() => { window.gdt.setDatums({ A: true, B: true, C: true }); window.gdt.applyPreset('centered'); window.gdt.setView('3d', { ms: 0 }); }); await home(); await page.waitForTimeout(500);
       }
+      // ---- Position / Virtual condition toggle (Sally) ----
+      {
+        await page.evaluate(() => { window.gdt.setView('3d', { ms: 0 }); }); await home(); await page.waitForTimeout(300);
+        const CK = (l, ok, d) => check(l, ok, typeof d === 'string' ? d : JSON.stringify(d)), TAP = tapSel;
+        const SHOT = async (n) => { await home(); await page.waitForTimeout(700); const ov = await overlapCheck(); check(`${n}: labels, badges, VC toggle, handles: nothing overlaps, all in view`, ov.issues.length === 0 && ov.minFont >= 10, ov.issues.join(', ')); await page.screenshot({ path: `${OUT}/${sl}-${n}-${TAG}.png` }); };
+        const mb = await page.evaluate(() => { const q = (s) => document.querySelector(s).getBoundingClientRect(); const bs = [...document.querySelectorAll('#view-row button')].filter((b) => b.offsetWidth).map((b) => b.getBoundingClientRect()); const c = window.gdt._debug.canvas.getBoundingClientRect(); const v = q('#view-row'); return { n: bs.length, minH: Math.min(...bs.map((b) => b.height)), minW: Math.min(...bs.map((b) => b.width)), inside: v.left >= c.left && v.right <= c.right + 0.5 && v.top >= c.top, clearOfRow: true }; });
+        check('Position / Virtual condition toggle in the view row (phones: one VC toggle): every button >= 40px, row inside the 3D view', mb.minH >= 40 && mb.minW >= 40 && mb.inside, JSON.stringify(mb));
+        const VC = () => page.evaluate(() => { const r = window.gdt.result(), e = (id) => document.getElementById(id); const btn = document.querySelector('#view-row [data-mode="vc"]'); const lab = document.querySelector('.vc-label'); const zl = [...document.querySelectorAll('.zone-label')].find((x) => !x.classList.contains('vc-label'));
+          return { verdict: r.verdict, shown: r.vcShown, applies: r.vc.applies, inside: r.vc.inside, lockR: r.vc.lockRadius, kind: r.vc.kind, vc: r.vc.vc, cmin: r.vc.clearance?.min, clear: e('vc-clear').innerText, clearCls: e('vc-clear').className, disabled: btn.disabled, pressed: btn.getAttribute('aria-pressed'), note: e('vc-rfs-note').hidden ? '' : e('vc-rfs-note').innerText, label: lab ? lab.textContent.replace(/\s+/g, ' ') : '', zoneLabel: !!zl, mag: e('mag-badge').innerText, tb: r.top.r, bb: r.bottom.r, zone: r.zone }; });
+        const vcReset = () => page.evaluate(() => { const g = window.gdt; g.setLock(false); g.setTiltLock(false); g.setDatums({ A: true, B: true, C: true }); g.setStated(0.25); g.setModifier('RFS'); g.setSize(10.1); g.setVcView(false); g.applyPreset('centered'); });
+        await vcReset(); await page.waitForTimeout(200);
+        let v = await VC();
+        CK('VC toggle at RFS: "Virtual condition" disabled, note "Virtual condition applies at MMC or LMC.", Position view stays', v.disabled && v.note === 'Virtual condition applies at MMC or LMC.' && v.clear === v.note && !v.shown && v.zoneLabel && v.pressed === 'false', v);
+        await page.locator('#view-row [data-mode="vc"]').click({ force: true }).catch(() => {}); await page.waitForTimeout(150); v = await VC();
+        CK('tapping the disabled VC button at RFS does nothing', !v.shown && v.zoneLabel, v);
+        await page.evaluate(() => window.gdt.setModifier('MMC')); await page.waitForTimeout(100);
+        await TAP('#view-row [data-mode="vc"]'); await page.waitForTimeout(400); v = await VC();
+        CK('MMC: Virtual condition on: red VC pin ⌀9.75 drawn (label), zone label gone, note hidden, badge says VC true size', v.shown && v.pressed === 'true' && v.kind === 'pin' && v.vc === 9.75 && /VC pin ⌀9\.75 \(MMC\)/.test(v.label) && !v.zoneLabel && v.note === '' && /VC true size/.test(v.mag), v);
+        const sizes = [];
+        for (const s of [10, 10.1, 10.2]) { await page.evaluate((s) => window.gdt.setSize(s), s); await page.waitForFunction(() => /⌀9\.75/.test(document.querySelector('.vc-label')?.textContent ?? ''), null, { timeout: 3000 }).catch(() => {}); const x = await VC(); sizes.push([s, x.vc, x.label.match(/⌀[\d.]+/)?.[0]]); }
+        CK('MMC: VC size follows stated + modifier only (⌀9.75 at every hole size)', sizes.every((x) => x[1] === 9.75 && x[2] === '⌀9.75'), sizes);
+        await page.evaluate(() => window.gdt.setStated(0.4)); await page.waitForFunction(() => /⌀9\.6/.test(document.querySelector('.vc-label')?.textContent ?? ''), null, { timeout: 3000 }).catch(() => {}); v = await VC();
+        CK('MMC: stated ⌀0.4 -> VC ⌀9.6', v.vc === 9.6 && /⌀9\.6/.test(v.label), v.label);
+        await page.evaluate(() => { window.gdt.setStated(0.25); window.gdt.setSize(10.1); }); await page.waitForTimeout(80);
+        // equivalence sweep: VC view vs bonus-zone view, both modifiers, sizes, offsets (incl. exact boundary)
+        const bad = await page.evaluate(() => { const g = window.gdt, out = []; let n = 0;
+          for (const m of ['MMC', 'LMC']) { g.setModifier(m); for (const s of [10, 10.05, 10.1, 10.2, 9.99, 10.21]) { g.setSize(s);
+            for (const dx of [0, 0.05, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.3]) for (const dy of [0, 0.05, -0.1]) {
+              g.setVcView(false); g.setAxis({ bottom: { dx, dy }, top: { dx: -dx / 2, dy } }); const a = g.result().verdict;
+              g.setVcView(true); const r = g.result(); n++;
+              const clsOk = ['REJECT_SIZE', 'NO_DATUMS'].includes(r.verdict) ? !/pass|fail/.test(document.getElementById('vc-clear').className) : document.getElementById('vc-clear').classList.contains(r.verdict === 'IN' ? 'pass' : 'fail');
+              if (a !== r.verdict || (r.verdict === 'IN') !== r.vc.inside && r.verdict !== 'REJECT_SIZE' || !clsOk) out.push([m, s, dx, dy, a, r.verdict, r.vc.inside]);
+            } } }
+          return { n, out: out.slice(0, 5), nbad: out.length }; });
+        CK(`VC view and Position view never disagree on IN/OUT (${bad.n} cases, MMC + LMC, boundary incl.), clearance line colour agrees`, bad.nbad === 0, bad);
+        await page.evaluate(() => { const g = window.gdt; g.setModifier('MMC'); g.setSize(10.1); g.setVcView(true); g.setAxis({ bottom: { dx: 0.1, dy: 0.05 }, top: { dx: 0, dy: 0 } }); }); await page.waitForTimeout(100); v = await VC();
+        CK('clearance readout = leftover tolerance (⌀10.1 MMC, r 0.112: clearance 0.063 mm = leftover ⌀0.126; rounded down)', /clearance 0\.063 mm = leftover ⌀0\.126/.test(v.clear) && /pass/.test(v.clearCls), v.clear);
+        // lock: the VC is impermeable; a drag stops at contact
+        await page.evaluate(() => { const g = window.gdt; g.applyPreset('centered'); g.setLock(true); for (let i = 1; i <= 40; i++) g.dragAxis({ top: { dx: 0.01 * i, dy: 0.004 * i } }); }); await page.waitForTimeout(100); v = await VC();
+        CK('MMC lock: dragging TOP outward stops at contact (r = (d − 9.75)/2 = 0.175), wall never crosses, IN, clearance 0', v.inside && v.verdict === 'IN' && Math.abs(v.tb - 0.175) < 0.0015 && /clearance 0 mm/.test(v.clear), v);
+        if (SHOT) await SHOT('vc-mmc-locked');
+        await page.evaluate(() => { const g = window.gdt; g.setModifier('LMC'); g.setSize(10.05); g.applyPreset('centered'); for (let i = 1; i <= 40; i++) g.dragAxis({ bottom: { dx: -0.01 * i, dy: 0 } }); }); await page.waitForTimeout(150); v = await VC();
+        CK('LMC: VC boundary ⌀10.45 (hole stays inside); lock stops at (10.45 − d)/2 = 0.2; IN', v.kind === 'boundary' && v.vc === 10.45 && /VC boundary ⌀10\.45 \(LMC\)/.test(v.label) && Math.abs(v.bb - 0.2) < 0.0015 && v.inside && v.verdict === 'IN', v);
+        if (SHOT) await SHOT('vc-lmc');
+        // datums dropped: the VC slides with the zone's best fit
+        await page.evaluate(() => { const g = window.gdt; g.setLock(false); g.setModifier('MMC'); g.setSize(10.1); g.setDatum('C', false); g.setAxis({ bottom: { dx: 0, dy: 0.3 }, top: { dx: 0, dy: 0.3 } }); }); await page.waitForTimeout(150); v = await VC();
+        CK('C dropped: the VC slides with the zone best fit (centre dy +0.3), still IN, label shown', v.shown && Math.abs(v.zone.dy - 0.3) < 1e-9 && v.verdict === 'IN' && v.inside && v.label !== '', v);
+        await page.evaluate(() => window.gdt.setModifier('RFS')); await page.waitForTimeout(150); v = await VC();
+        CK('switching to RFS while in VC view: back to Position view, VC disabled, note shown', !v.shown && v.disabled && v.zoneLabel && v.note !== '', v);
+        if (SHOT) await SHOT('vc-rfs-disabled');
+        await vcReset(); await page.waitForTimeout(200);
+      }
       // ---- Explain this setup (collapsed on phones, tap to expand; Sally's copy; advice never changes IN/OUT) ----
       {
         const isPh = await page.evaluate(() => window.matchMedia('(max-width: 700px), (max-height: 500px)').matches);
@@ -543,12 +595,13 @@ for (const name of DEVICES) {
           ['bc', { A: false, B: true, C: true }, /B \| C \(A dropped\)/, [/axis held parallel to B and C \(vertical\)\./, /Z \(not visible on a through hole\)\./, /List A first: the hole is square to A and A gives a stable seat\./]],
           ['none', { A: false, B: false, C: false }, /No datums/, [/Position is undefined: nothing to measure the basic dimensions from\. Gray, no IN\/OUT\./, /Reference at least A, and B and C to locate\./]],
         ];
+        const BASIC = 'Basic dimensions take no default tolerance. With this datum dropped, this frame no longer locates the hole in that direction; a separate toleranced dimension or another control is needed.';
         for (const [tag, d, cfgRe, lines] of cases) {
           await page.evaluate((d) => window.gdt.setDatums(d), d); await page.waitForTimeout(200);
           x = await X();
-          const ok = cfgRe.test(x.cfg) && lines.every((re) => re.test(x.text)) && !x.overflow && x.open && x.bodyShown && x.practiceCited === 0 && x.tags.includes('ex-practice:');
+          const ok = cfgRe.test(x.cfg) && lines.every((re) => re.test(x.text)) && !x.overflow && x.open && x.bodyShown && x.practiceCited === 0 && x.tags.includes('ex-practice:') && x.text.includes(BASIC) === ['a-only', 'b-only', 'c-only', 'ab', 'ac'].includes(tag) && x.text.includes("The slide limit here is only the lesson's drag range. It is not a tolerance.") === ['a-only', 'b-only', 'c-only', 'ab', 'ac'].includes(tag);
           check(`explainer ${tag}: Sally's text verbatim, [Rule]/[Practice] tags, citations on rules only, no horizontal overflow`, ok, JSON.stringify({ cfg: x.cfg, tags: x.tags, overflow: x.overflow, text: x.text.slice(0, 200) }));
-          if (['a-only', 'b-only'].includes(tag)) {
+          if (['a-only', 'b-only', 'ac'].includes(tag)) {
             await page.evaluate(() => document.getElementById('explain').scrollIntoView({ block: 'center' })); await page.waitForTimeout(250);
             await page.screenshot({ path: `${OUT}/${sl}-explain-${tag}-open-${TAG}.png` });
           }
